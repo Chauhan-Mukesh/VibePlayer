@@ -106,7 +106,7 @@ if (isset($_GET['download'])) {
     <!-- SEO & AI Optimization -->
     <title>Vibe Player | The Ultimate Open Source Streaming Hub</title>
     <meta name="description" content="Vibe Player is a feature-rich, open-source video player that streams direct video links with a beautiful UI, keyboard shortcuts, history, and advanced features like proxy support.">
-    <meta name="keywords" content="video player, streaming, open source, terabox player, vibe player, html5 video, custom player, video download">
+    <meta name="keywords" content="video player, streaming, open source, terabox player, vibe player, html5 video, custom player, video download, no-login terabox, stream terabox video">
     <link rel="canonical" href="https://your-domain.com/"> <!-- Replace with your actual domain -->
 
     <!-- Open Graph / Facebook -->
@@ -179,7 +179,7 @@ if (isset($_GET['download'])) {
         .control-button { background-color: rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
         .control-button:hover { background-color: rgba(255,255,255,0.2); transform: scale(1.1); }
         input[type="range"] { -webkit-appearance: none; background: transparent; }
-        input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: rgba(156, 163, 175, 0.5); }
+        input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent-color) 0%, var(--accent-color) var(--progress, 0%), rgba(156, 163, 175, 0.5) var(--progress, 0%)); }
         input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--accent-color); margin-top: -5px; cursor: pointer; }
         input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(156, 163, 175, 0.5); }
         input[type="range"]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 50%; background: var(--accent-color); border: none; cursor: pointer; }
@@ -253,7 +253,7 @@ if (isset($_GET['download'])) {
                 <div class="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/70 to-transparent video-controls opacity-100">
                     <div class="progress-container">
                         <div id="bufferBar"></div>
-                        <input id="progressBar" type="range" min="0" max="100" value="0" class="w-full h-2 rounded-lg cursor-pointer" style="--progress: 0%;">
+                        <input id="progressBar" type="range" min="0" max="100" value="0" class="w-full h-2 rounded-lg cursor-pointer" style="--progress: 0%;" aria-label="Seek progress">
                     </div>
                     <div class="flex justify-between items-center text-white flex-wrap gap-2">
                         <div class="flex items-center space-x-2 md:space-x-4 flex-wrap">
@@ -491,10 +491,31 @@ if (isset($_GET['download'])) {
                     this.volumeSlider = document.getElementById('volumeSlider');
                     this.timeDisplay = document.getElementById('timeDisplay');
                     this.settingsMenu = document.getElementById('settings-menu');
-                    this.playPauseBtn = document.getElementById('playPauseBtn');
+                    this.historyTab = document.getElementById('history-tab');
+                    this.settingsTab = document.getElementById('settings-tab');
+                    this.loopToggle = document.getElementById('loopToggle');
+                    this.proxyUrlInput = document.getElementById('proxyUrlInput');
+                    this.customContextMenu = document.getElementById('custom-context-menu');
                     this.thumbnailContainer = document.getElementById('thumbnail-container');
                     this.thumbnailCanvas = document.getElementById('thumbnail-canvas');
+                    this.thumbnailCtx = this.thumbnailCanvas.getContext('2d');
                     this.thumbnailTime = document.getElementById('thumbnail-time');
+                    this.buttons = {
+                        playPauseBtn: document.getElementById('playPauseBtn'),
+                        rewindBtn: document.getElementById('rewindBtn'),
+                        forwardBtn: document.getElementById('forwardBtn'),
+                        volumeBtn: document.getElementById('volumeBtn'),
+                        settingsBtn: document.getElementById('settingsBtn'),
+                        theaterBtn: document.getElementById('theaterBtn'),
+                        pipBtn: document.getElementById('pipBtn'),
+                        fullscreenBtn: document.getElementById('fullscreenBtn'),
+                        downloadBtn: document.getElementById('downloadBtn'),
+                    };
+                    
+                    this.proxyUrl = localStorage.getItem('proxyUrl') || '';
+                    this.proxyUrlInput.value = this.proxyUrl;
+
+                    this.videoUrlInput.value = 'https://1024terabox.com/s/1hlC-j_45cfOepFFf1n-nng';
                     
                     this.setupEventListeners();
                     this.loadSettings();
@@ -502,99 +523,242 @@ if (isset($_GET['download'])) {
                 },
                 
                 setupEventListeners() {
-                    // Video events
-                    this.video.addEventListener('loadedmetadata', () => this.onVideoLoaded());
-                    this.video.addEventListener('timeupdate', () => this.updateProgress());
-                    this.video.addEventListener('progress', () => this.updateBuffer());
-                    this.video.addEventListener('ended', () => this.onVideoEnded());
-                    this.video.addEventListener('error', (e) => this.onVideoError(e));
-                    
                     // Player controls
-                    this.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
-                    document.getElementById('rewindBtn').addEventListener('click', () => this.seek(-10));
-                    document.getElementById('forwardBtn').addEventListener('click', () => this.seek(10));
-                    document.getElementById('fullscreenBtn').addEventListener('click', () => this.toggleFullscreen());
-                    document.getElementById('theaterBtn').addEventListener('click', () => this.toggleTheater());
-                    document.getElementById('pipBtn').addEventListener('click', () => this.togglePiP());
-                    document.getElementById('downloadBtn').addEventListener('click', () => this.downloadVideo());
-                    
-                    // Progress bar
-                    this.progressBar.addEventListener('input', () => this.onProgressInput());
-                    this.progressBar.addEventListener('mousemove', (e) => this.showThumbnail(e));
-                    this.progressBar.addEventListener('mouseleave', () => this.hideThumbnail());
-                    
-                    // Volume controls
-                    this.volumeSlider.addEventListener('input', () => this.updateVolume());
-                    document.getElementById('volumeBtn').addEventListener('click', () => this.toggleMute());
-                    
-                    // Settings
-                    document.getElementById('settingsBtn').addEventListener('click', () => this.toggleSettings());
-                    document.getElementById('playbackSpeed').addEventListener('change', (e) => this.setPlaybackSpeed(e.target.value));
-                    document.getElementById('loopToggle').addEventListener('change', (e) => this.setLoop(e.target.checked));
-                    
-                    // Tab switching
-                    document.querySelectorAll('.tab-button').forEach(btn => {
-                        btn.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
-                    });
-                    
-                    // Keyboard shortcuts
-                    document.addEventListener('keydown', (e) => this.handleKeyboard(e));
-                    
-                    // Click to play/pause
+                    this.buttons.playPauseBtn.addEventListener('click', () => this.togglePlayPause());
                     this.video.addEventListener('click', () => this.togglePlayPause());
-                    
-                    // Hide settings when clicking outside
-                    document.addEventListener('click', (e) => {
-                        if (!e.target.closest('#settingsBtn') && !e.target.closest('#settings-menu')) {
-                            this.settingsMenu.classList.add('hidden');
-                        }
+                    this.buttons.rewindBtn.addEventListener('click', () => this.seekVideo(-10));
+                    this.buttons.forwardBtn.addEventListener('click', () => this.seekVideo(10));
+                    this.video.addEventListener('play', () => this.updatePlayPauseIcon());
+                    this.video.addEventListener('pause', () => this.updatePlayPauseIcon());
+                    this.volumeSlider.addEventListener('input', () => this.setVolume(this.volumeSlider.value));
+                    this.video.addEventListener('volumechange', () => this.updateVolumeIcon());
+                    this.buttons.volumeBtn.addEventListener('click', () => this.toggleMute());
+                    this.video.addEventListener('timeupdate', () => this.updateTimeDisplay());
+                    this.video.addEventListener('loadedmetadata', () => this.updateTimeDisplay());
+                    this.progressBar.addEventListener('input', (e) => this.seek(e.target.value));
+                    this.buttons.settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); this.settingsMenu.classList.toggle('hidden'); });
+                    this.settingsMenu.querySelectorAll('.tab-button').forEach(button => {
+                        button.addEventListener('click', (e) => {
+                            const tab = e.target.dataset.tab;
+                            this.settingsMenu.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                            e.target.classList.add('active');
+                            if (tab === 'history') {
+                                this.renderHistory();
+                                this.settingsTab.classList.add('hidden');
+                                this.historyTab.classList.remove('hidden');
+                            } else {
+                                this.settingsTab.classList.remove('hidden');
+                                this.historyTab.classList.add('hidden');
+                            }
+                        });
                     });
+                    this.loopToggle.addEventListener('change', () => this.video.loop = this.loopToggle.checked);
+                    this.proxyUrlInput.addEventListener('change', (e) => { this.proxyUrl = e.target.value; localStorage.setItem('proxyUrl', this.proxyUrl); });
+                    this.buttons.theaterBtn.addEventListener('click', () => this.toggleTheaterMode());
+                    this.buttons.pipBtn.addEventListener('click', () => this.togglePip());
+                    this.buttons.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
+                    this.buttons.downloadBtn.addEventListener('click', () => this.downloadVideo());
+                    document.addEventListener('fullscreenchange', () => this.updateFullscreenIcon());
+                    document.addEventListener('click', () => { this.settingsMenu.classList.add('hidden'); this.customContextMenu.classList.add('hidden'); });
+                    this.video.addEventListener('error', () => this.handleVideoError());
+                    this.videoPlayerWrapper.addEventListener('contextmenu', (e) => this.showCustomContextMenu(e));
+                    this.progressBar.addEventListener('mousemove', (e) => this.updateThumbnail(e));
+                    this.progressBar.addEventListener('mouseleave', () => this.thumbnailContainer.classList.remove('visible'));
+                    document.addEventListener('keydown', (e) => this.handleKeyboardShortcuts(e));
                 },
                 
                 async loadVideo() {
-                    const url = this.videoUrlInput.value.trim();
-                    if (!url) {
-                        UI.showToast('Please enter a video URL', 'error');
-                        return;
-                    }
+                    let url = this.videoUrlInput.value.trim();
+                    if (!url) { UI.showToast('Please paste a video URL.', 'error'); return; }
                     
+                    this.playerContainer.classList.remove('hidden');
                     UI.setUrlStatus('loading');
-                    
+
                     try {
-                        let videoUrl = url;
-                        
-                        // Check if it's a Terabox link
+                        let finalUrl = url;
                         if (url.includes('terabox.com')) {
-                            const response = await fetch(`?resolve&url=${encodeURIComponent(url)}`);
-                            const result = await response.json();
-                            
-                            if (result.success) {
-                                videoUrl = result.url;
-                                UI.showToast('Terabox link resolved successfully!', 'success');
-                            } else {
-                                throw new Error(result.message || 'Failed to resolve Terabox link');
-                            }
+                            UI.showToast('Resolving Terabox link...', 'info');
+                            finalUrl = await this.resolveTeraboxLink(url);
+                            UI.showToast('Link resolved successfully!', 'success');
                         }
                         
-                        // Apply proxy if configured
-                        const proxyUrl = document.getElementById('proxyUrlInput').value.trim();
-                        if (proxyUrl && !url.includes('terabox.com')) {
-                            videoUrl = proxyUrl + encodeURIComponent(videoUrl);
+                        const proxiedUrl = this.proxyUrl ? this.proxyUrl + encodeURIComponent(finalUrl) : finalUrl;
+                        
+                        this.video.src = proxiedUrl;
+                        this.thumbnailVideo.src = proxiedUrl;
+
+                        this.video.load();
+                        const playPromise = this.video.play();
+                        if (playPromise !== undefined) {
+                            playPromise.catch(error => {
+                                if (error.name !== 'AbortError') {
+                                    UI.showToast('Auto-play blocked. Press play to start.', 'info');
+                                }
+                            });
                         }
-                        
-                        this.video.src = videoUrl;
-                        this.thumbnailVideo.src = videoUrl;
-                        this.playerContainer.classList.remove('hidden');
-                        
-                        // Save to history
-                        this.saveToHistory(url, videoUrl);
-                        
-                        UI.showToast('Video loaded successfully!', 'success');
+                        this.addToHistory(url);
                     } catch (error) {
                         UI.showToast(error.message, 'error');
                     } finally {
                         UI.setUrlStatus('idle');
                     }
+                },
+
+                async resolveTeraboxLink(url) {
+                    const response = await fetch(`?resolve&url=${encodeURIComponent(url)}`);
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        return result.url;
+                    } else {
+                        throw new Error(result.message || 'Failed to resolve Terabox link');
+                    }
+                },
+
+                updatePlayPauseIcon() {
+                    const icon = this.video.paused ? 'fa-play' : 'fa-pause';
+                    this.buttons.playPauseBtn.innerHTML = `<i class="fas ${icon}"></i>`;
+                },
+
+                seekVideo(seconds) {
+                    this.video.currentTime = Math.max(0, Math.min(this.video.duration, this.video.currentTime + seconds));
+                    UI.showActionIcon(seconds > 0 ? 'fa-forward' : 'fa-backward');
+                },
+
+                setVolume(value) {
+                    this.video.volume = value;
+                    this.updateVolumeIcon();
+                },
+
+                seek(value) {
+                    this.video.currentTime = (value / 100) * this.video.duration;
+                },
+
+                renderHistory() {
+                    // Get history from localStorage
+                    const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
+                    if (history.length === 0) {
+                        this.historyTab.innerHTML = '<p class="text-gray-400 text-sm">No history yet</p>';
+                        return;
+                    }
+                    
+                    this.historyTab.innerHTML = history.map(item => `
+                        <div class="mb-2 p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700" onclick="Player.loadFromHistory('${item.url}')">
+                            <div class="text-sm font-bold truncate">${item.title}</div>
+                            <div class="text-xs text-gray-400">${new Date(item.timestamp).toLocaleDateString()}</div>
+                        </div>
+                    `).join('');
+                },
+
+                toggleTheaterMode() {
+                    document.body.classList.toggle('theater-mode');
+                },
+
+                togglePip() {
+                    if (document.pictureInPictureElement) {
+                        document.exitPictureInPicture();
+                    } else if (document.pictureInPictureEnabled) {
+                        this.video.requestPictureInPicture();
+                    }
+                },
+
+                updateFullscreenIcon() {
+                    const btn = this.buttons.fullscreenBtn;
+                    const icon = document.fullscreenElement ? 'fa-compress' : 'fa-expand';
+                    btn.innerHTML = `<i class="fas ${icon}"></i>`;
+                },
+
+                handleVideoError() {
+                    UI.showToast('Error loading video. Please check the URL.', 'error');
+                },
+
+                showCustomContextMenu(e) {
+                    e.preventDefault();
+                    this.customContextMenu.style.left = e.pageX + 'px';
+                    this.customContextMenu.style.top = e.pageY + 'px';
+                    this.customContextMenu.classList.remove('hidden');
+                },
+
+                updateThumbnail(e) {
+                    if (!this.video.duration) return;
+                    
+                    const rect = this.progressBar.getBoundingClientRect();
+                    const percent = (e.clientX - rect.left) / rect.width;
+                    const time = percent * this.video.duration;
+                    
+                    this.thumbnailTime.textContent = this.formatTime(time);
+                    this.thumbnailContainer.style.left = `${e.clientX - rect.left - 80}px`;
+                    this.thumbnailContainer.classList.add('visible');
+                },
+
+                handleKeyboardShortcuts(e) {
+                    if (document.activeElement.tagName === 'INPUT') return;
+                    
+                    switch (e.code) {
+                        case 'Space':
+                            e.preventDefault();
+                            this.togglePlayPause();
+                            break;
+                        case 'ArrowLeft':
+                            e.preventDefault();
+                            this.seekVideo(-5);
+                            break;
+                        case 'ArrowRight':
+                            e.preventDefault();
+                            this.seekVideo(5);
+                            break;
+                        case 'ArrowUp':
+                            e.preventDefault();
+                            this.video.volume = Math.min(1, this.video.volume + 0.1);
+                            this.volumeSlider.value = this.video.volume;
+                            this.updateVolumeIcon();
+                            break;
+                        case 'ArrowDown':
+                            e.preventDefault();
+                            this.video.volume = Math.max(0, this.video.volume - 0.1);
+                            this.volumeSlider.value = this.video.volume;
+                            this.updateVolumeIcon();
+                            break;
+                        case 'KeyF':
+                            e.preventDefault();
+                            this.toggleFullscreen();
+                            break;
+                        case 'KeyM':
+                            e.preventDefault();
+                            this.toggleMute();
+                            break;
+                    }
+                },
+
+                addToHistory(url) {
+                    const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
+                    const entry = {
+                        url: url,
+                        title: this.extractTitle(url),
+                        timestamp: Date.now()
+                    };
+                    
+                    // Remove duplicates
+                    const filtered = history.filter(item => item.url !== url);
+                    filtered.unshift(entry);
+                    
+                    // Keep only last 50 entries
+                    localStorage.setItem('videoHistory', JSON.stringify(filtered.slice(0, 50)));
+                },
+
+                extractTitle(url) {
+                    try {
+                        const urlObj = new URL(url);
+                        return urlObj.hostname + urlObj.pathname.split('/').pop();
+                    } catch {
+                        return url.substring(0, 50) + '...';
+                    }
+                },
+
+                loadFromHistory(url) {
+                    this.videoUrlInput.value = url;
+                    this.loadVideo();
+                    this.settingsMenu.classList.add('hidden');
                 },
                 
                 onVideoLoaded() {
@@ -627,6 +791,12 @@ if (isset($_GET['download'])) {
                     const current = this.formatTime(this.video.currentTime);
                     const total = this.formatTime(this.video.duration);
                     this.timeDisplay.textContent = `${current} / ${total}`;
+                    
+                    // Update progress bar visual
+                    const percent = (this.video.currentTime / this.video.duration) * 100;
+                    this.progressBar.style.setProperty('--progress', `${percent}%`);
+                    this.progressBar.value = this.video.currentTime;
+                    this.progressBar.max = this.video.duration;
                 },
                 
                 formatTime(seconds) {
@@ -643,11 +813,9 @@ if (isset($_GET['download'])) {
                 togglePlayPause() {
                     if (this.video.paused) {
                         this.video.play();
-                        this.playPauseBtn.innerHTML = '<i class="fas fa-pause"></i>';
                         UI.showActionIcon('fa-play');
                     } else {
                         this.video.pause();
-                        this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
                         UI.showActionIcon('fa-pause');
                     }
                 },
@@ -667,7 +835,7 @@ if (isset($_GET['download'])) {
                 },
                 
                 updateVolumeIcon() {
-                    const volumeBtn = document.getElementById('volumeBtn');
+                    const volumeBtn = this.buttons.volumeBtn;
                     const volume = this.video.volume;
                     let icon = 'fa-volume-high';
                     
@@ -692,29 +860,22 @@ if (isset($_GET['download'])) {
                 toggleFullscreen() {
                     if (!document.fullscreenElement) {
                         this.videoPlayerWrapper.requestFullscreen();
-                        document.getElementById('fullscreenBtn').innerHTML = '<i class="fas fa-compress"></i>';
                     } else {
                         document.exitFullscreen();
-                        document.getElementById('fullscreenBtn').innerHTML = '<i class="fas fa-expand"></i>';
                     }
                 },
                 
-                toggleTheater() {
+                toggleTheaterMode() {
                     document.body.classList.toggle('theater-mode');
-                    const btn = document.getElementById('theaterBtn');
-                    const isTheater = document.body.classList.contains('theater-mode');
-                    btn.innerHTML = isTheater ? '<i class="fas fa-rectangle-xmark"></i>' : '<i class="fas fa-rectangle-xmark"></i>';
                 },
                 
-                async togglePiP() {
-                    try {
-                        if (document.pictureInPictureElement) {
-                            await document.exitPictureInPicture();
-                        } else {
-                            await this.video.requestPictureInPicture();
-                        }
-                    } catch (error) {
-                        UI.showToast('Picture-in-Picture not supported', 'error');
+                togglePip() {
+                    if (document.pictureInPictureElement) {
+                        document.exitPictureInPicture();
+                    } else if (document.pictureInPictureEnabled) {
+                        this.video.requestPictureInPicture().catch(error => {
+                            UI.showToast('Picture-in-Picture not supported', 'error');
+                        });
                     }
                 },
                 
