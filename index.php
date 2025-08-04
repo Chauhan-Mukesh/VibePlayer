@@ -34,18 +34,19 @@ if (isset($_GET['resolve'])) {
     $resolvedUrl = null;
     $errors = [];
     
-    // Try direct method first (fastest)
+    // Try direct method first (fastest and most reliable)
     try {
         $directUrl = resolveTeraboxDirect($url);
         if ($directUrl) {
             echo json_encode(['success' => true, 'url' => $directUrl]);
             exit;
         }
+        $errors[] = "Direct method: No video URL found in page content";
     } catch (Exception $e) {
         $errors[] = "Direct method failed: " . $e->getMessage();
     }
     
-    // Fallback to proxy methods
+    // Fallback to proxy methods with enhanced error handling
     foreach ($proxies as $proxy) {
         try {
             $targetUrl = $proxy . urlencode($url);
@@ -64,45 +65,58 @@ if (isset($_GET['resolve'])) {
                     'Accept-Language: en-US,en;q=0.5',
                     'Accept-Encoding: gzip, deflate',
                     'Connection: keep-alive',
-                    'Upgrade-Insecure-Requests: 1'
+                    'Upgrade-Insecure-Requests: 1',
+                    'Cache-Control: no-cache'
                 ]
             ]);
             
             $html = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
             curl_close($ch);
+            
+            if ($curlError) {
+                $errors[] = "Proxy $proxy cURL error: $curlError";
+                continue;
+            }
             
             if ($httpCode !== 200 || !$html) {
                 $errors[] = "Proxy $proxy returned HTTP $httpCode";
                 continue;
             }
             
-            // Enhanced video URL extraction patterns
+            // Enhanced video URL extraction patterns with better validation
             $patterns = [
-                '/"play_url":"(.*?)"/',
-                '/sources:\["(.*?)"\]/',
-                '/"dlink":"(.*?)"/',
-                '/"video_url":"(.*?)"/',
+                '/"dlink":"(https?:\/\/[^"]+)"/',
+                '/"play_url":"(https?:\/\/[^"]+)"/',
+                '/sources:\["(https?:\/\/[^"]+)"\]/',
+                '/"video_url":"(https?:\/\/[^"]+)"/',
                 '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
                 '/src["\']?\s*:\s*["\']([^"\']+\.mp4[^"\']*)/i',
-                '/"url":"(.*?\.mp4.*?)"/',
-                '/data-src="(.*?\.mp4.*?)"/',
-                '/href="(.*?\.mp4.*?)"/'
+                '/"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/',
+                '/data-src="(https?:\/\/[^"]+\.mp4[^"]*)"/',
+                '/href="(https?:\/\/[^"]+\.mp4[^"]*)"/',
+                '/"downloadUrl":"(https?:\/\/[^"]+)"/',
+                '/"stream_url":"(https?:\/\/[^"]+)"/'
             ];
             
             foreach ($patterns as $pattern) {
                 if (preg_match($pattern, $html, $matches)) {
                     $resolvedUrl = stripslashes($matches[1]);
-                    // Validate URL
+                    // Enhanced URL validation
                     if (filter_var($resolvedUrl, FILTER_VALIDATE_URL) && 
-                        (strpos($resolvedUrl, '.mp4') !== false || strpos($resolvedUrl, 'video') !== false)) {
+                        (strpos($resolvedUrl, '.mp4') !== false || 
+                         strpos($resolvedUrl, 'video') !== false ||
+                         strpos($resolvedUrl, 'stream') !== false ||
+                         strpos($resolvedUrl, 'dlink') !== false ||
+                         preg_match('/\.(mp4|webm|avi|mov|mkv)(\?|$)/i', $resolvedUrl))) {
                         echo json_encode(['success' => true, 'url' => $resolvedUrl]);
                         exit;
                     }
                 }
             }
             
-            $errors[] = "Proxy $proxy: No valid video URL found";
+            $errors[] = "Proxy $proxy: No valid video URL found in response";
         } catch (Exception $e) {
             $errors[] = "Proxy $proxy error: " . $e->getMessage();
         }
@@ -113,53 +127,105 @@ if (isset($_GET['resolve'])) {
 }
 
 /**
- * Direct Terabox resolution method
- * Attempts to resolve without proxies using direct API calls
+ * Enhanced Direct Terabox resolution method
+ * Attempts to resolve without proxies using direct scraping
  */
 function resolveTeraboxDirect($url) {
-    // Extract share ID from URL
-    preg_match('/\/s\/([^\/\?]+)/', $url, $matches);
-    if (!isset($matches[1])) {
-        return false;
-    }
-    
-    $shareId = $matches[1];
-    
-    // Try different API endpoints
-    $apiEndpoints = [
-        "https://www.terabox.com/api/share/info?shorturl=$shareId",
-        "https://1024terabox.com/api/share/info?shorturl=$shareId",
-        "https://terabox.com/share/info?surl=$shareId"
-    ];
-    
-    foreach ($apiEndpoints as $endpoint) {
-        try {
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $endpoint,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 10,
-                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_HTTPHEADER => [
-                    'Accept: application/json',
-                    'Referer: ' . $url
-                ]
-            ]);
-            
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($httpCode === 200 && $response) {
-                $data = json_decode($response, true);
-                if (isset($data['dlink']) || isset($data['play_url'])) {
-                    return $data['dlink'] ?? $data['play_url'];
+    try {
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => [
+                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language: en-US,en;q=0.5',
+                'Accept-Encoding: gzip, deflate',
+                'Connection: keep-alive',
+                'Upgrade-Insecure-Requests: 1',
+                'Cache-Control: no-cache',
+                'Pragma: no-cache'
+            ]
+        ]);
+        
+        $html = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        
+        if (curl_errno($ch)) {
+            throw new Exception('cURL Error: ' . curl_error($ch));
+        }
+        curl_close($ch);
+
+        if ($httpCode !== 200 || empty($html)) {
+            throw new Exception('Failed to fetch Terabox page. HTTP Code: ' . $httpCode);
+        }
+
+        // Enhanced pattern matching for video URLs
+        $resolvedUrl = null;
+        
+        // Method 1: Look for window.__INIT_DATA__ object
+        if (preg_match('/<script>window\.__INIT_DATA__\s*=\s*({.*?})<\/script>/', $html, $matches)) {
+            $data = json_decode($matches[1], true);
+            if ($data) {
+                // Navigate the JSON object to find the direct link
+                $resolvedUrl = $data['share_info']['dlink'] ?? 
+                              $data['file_list'][0]['dlink'] ?? 
+                              $data['share_info']['file_list'][0]['dlink'] ?? null;
+                
+                if ($resolvedUrl) {
+                    return $resolvedUrl;
                 }
             }
-        } catch (Exception $e) {
-            continue;
         }
+        
+        // Method 2: Enhanced regex patterns for video URLs
+        $patterns = [
+            '/"dlink":"(https?:\/\/[^"]+)"/',
+            '/"play_url":"(https?:\/\/[^"]+)"/',
+            '/sources:\["(https?:\/\/[^"]+)"\]/',
+            '/"video_url":"(https?:\/\/[^"]+)"/',
+            '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
+            '/src["\']?\s*:\s*["\']([^"\']+\.mp4[^"\']*)/i',
+            '/"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/',
+            '/data-src="(https?:\/\/[^"]+\.mp4[^"]*)"/',
+            '/href="(https?:\/\/[^"]+\.mp4[^"]*)"/',
+            '/"downloadUrl":"(https?:\/\/[^"]+)"/',
+            '/"stream_url":"(https?:\/\/[^"]+)"/'
+        ];
+        
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $html, $matches)) {
+                $candidate = stripslashes($matches[1]);
+                // Validate URL and ensure it contains video-related content
+                if (filter_var($candidate, FILTER_VALIDATE_URL) && 
+                    (strpos($candidate, '.mp4') !== false || 
+                     strpos($candidate, 'video') !== false ||
+                     strpos($candidate, 'stream') !== false ||
+                     strpos($candidate, 'dlink') !== false)) {
+                    return $candidate;
+                }
+            }
+        }
+        
+        // Method 3: Look for JSON data in script tags
+        if (preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scriptMatches)) {
+            foreach ($scriptMatches[1] as $script) {
+                // Look for URLs in JSON-like structures
+                if (preg_match('/"(?:dlink|play_url|video_url|downloadUrl|stream_url)":"(https?:\/\/[^"]+)"/', $script, $matches)) {
+                    $candidate = stripslashes($matches[1]);
+                    if (filter_var($candidate, FILTER_VALIDATE_URL)) {
+                        return $candidate;
+                    }
+                }
+            }
+        }
+
+    } catch (Exception $e) {
+        error_log('Terabox Direct Resolution Error: ' . $e->getMessage());
+        return false;
     }
     
     return false;
@@ -298,14 +364,127 @@ if (isset($_GET['download'])) {
     }
     </script>
     
-    <!-- Self-contained Tailwind CSS for styling -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Self-contained minimal CSS framework -->
+    <style>
+        /* Tailwind-like utility classes for basic styling */
+        .hidden { display: none !important; }
+        .flex { display: flex; }
+        .grid { display: grid; }
+        .block { display: block; }
+        .inline-block { display: inline-block; }
+        .w-full { width: 100%; }
+        .h-full { height: 100%; }
+        .max-w-4xl { max-width: 56rem; }
+        .max-w-5xl { max-width: 64rem; }
+        .max-w-7xl { max-width: 80rem; }
+        .mx-auto { margin-left: auto; margin-right: auto; }
+        .p-2 { padding: 0.5rem; }
+        .p-4 { padding: 1rem; }
+        .p-6 { padding: 1.5rem; }
+        .px-4 { padding-left: 1rem; padding-right: 1rem; }
+        .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+        .pl-12 { padding-left: 3rem; }
+        .pr-4 { padding-right: 1rem; }
+        .space-y-6 > * + * { margin-top: 1.5rem; }
+        .space-x-2 > * + * { margin-left: 0.5rem; }
+        .space-x-4 > * + * { margin-left: 1rem; }
+        .rounded { border-radius: 0.25rem; }
+        .rounded-lg { border-radius: 0.5rem; }
+        .rounded-xl { border-radius: 0.75rem; }
+        .rounded-2xl { border-radius: 1rem; }
+        .rounded-full { border-radius: 9999px; }
+        .border-2 { border-width: 2px; }
+        .bg-black { background-color: #000000; }
+        .bg-white { background-color: #ffffff; }
+        .bg-transparent { background-color: transparent; }
+        .text-white { color: #ffffff; }
+        .text-center { text-align: center; }
+        .text-left { text-align: left; }
+        .text-sm { font-size: 0.875rem; }
+        .text-xl { font-size: 1.25rem; }
+        .text-4xl { font-size: 2.25rem; }
+        .text-5xl { font-size: 3rem; }
+        .font-bold { font-weight: 700; }
+        .items-center { align-items: center; }
+        .justify-center { justify-content: center; }
+        .justify-between { justify-content: space-between; }
+        .relative { position: relative; }
+        .absolute { position: absolute; }
+        .fixed { position: fixed; }
+        .inset-y-0 { top: 0; bottom: 0; }
+        .left-0 { left: 0; }
+        .right-0 { right: 0; }
+        .bottom-0 { bottom: 0; }
+        .top-0 { top: 0; }
+        .min-h-screen { min-height: 100vh; }
+        .aspect-video { aspect-ratio: 16 / 9; }
+        .overflow-hidden { overflow: hidden; }
+        .shadow-lg { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .cursor-pointer { cursor: pointer; }
+        .focus\:outline-none:focus { outline: none; }
+        .hover\:bg-gray-700:hover { background-color: #374151; }
+        .bg-gray-800 { background-color: #1f2937; }
+        .bg-gray-900 { background-color: #111827; }
+        .text-gray-400 { color: #9ca3af; }
+        .border-gray-600 { border-color: #4b5563; }
+        
+        /* Mobile responsive utilities */
+        @media (min-width: 640px) {
+            .sm\:p-6 { padding: 1.5rem; }
+        }
+        @media (min-width: 768px) {
+            .md\:text-5xl { font-size: 3rem; }
+            .md\:p-4 { padding: 1rem; }
+            .md\:space-x-4 > * + * { margin-left: 1rem; }
+        }
+        @media (min-width: 1024px) {
+            .lg\:max-w-5xl { max-width: 64rem; }
+        }
+        @media (min-width: 1536px) {
+            .xl\:max-w-7xl { max-width: 80rem; }
+        }
+    </style>
     
-    <!-- FontAwesome Icons (self-contained fallback) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- FontAwesome Icons with fallback -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" 
+          onerror="this.onerror=null; this.remove(); document.getElementById('fontawesome-fallback').style.display='block';">
+    
+    <!-- Fallback FontAwesome styles when CDN fails -->
+    <style id="fontawesome-fallback" style="display: none;">
+        .fas, .fa { font-family: Arial, sans-serif; }
+        .fa-play:before { content: '▶'; }
+        .fa-pause:before { content: '⏸'; }
+        .fa-backward:before { content: '⏪'; }
+        .fa-forward:before { content: '⏩'; }
+        .fa-volume-high:before { content: '🔊'; }
+        .fa-volume-low:before { content: '🔉'; }
+        .fa-volume-xmark:before { content: '🔇'; }
+        .fa-expand:before { content: '⛶'; }
+        .fa-compress:before { content: '⛝'; }
+        .fa-download:before { content: '⬇'; }
+        .fa-cog:before { content: '⚙'; }
+        .fa-sun:before { content: '☀'; }
+        .fa-moon:before { content: '🌙'; }
+        .fa-link:before { content: '🔗'; }
+        .fa-spinner:before { content: '↻'; animation: spin 1s linear infinite; }
+        .fa-info-circle:before { content: 'ℹ'; }
+        .fa-check-circle:before { content: '✅'; }
+        .fa-exclamation-circle:before { content: '❗'; }
+        .fa-rectangle-xmark:before { content: '📺'; }
+        .fa-clone:before { content: '📺'; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
     
     <!-- Google Fonts (with fallback) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"
+          onerror="this.onerror=null; this.remove();">
+    
+    <style>
+        /* Fallback font when Google Fonts fails */
+        @font-face {
+            font-family: 'Inter-fallback';
+            src: local('system-ui'), local('-apple-system'), local('BlinkMacSystemFont'), local('Segoe UI'), local('Roboto');
+        }
     
     <style>
         /* CSS Variables for theming */
@@ -341,7 +520,7 @@ if (isset($_GET['download'])) {
         }
         
         body { 
-            font-family: 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', sans-serif; 
+            font-family: 'Inter', 'Inter-fallback', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', sans-serif; 
             background-color: var(--bg-color); 
             color: var(--text-color); 
         }
@@ -1063,11 +1242,11 @@ if (isset($_GET['download'])) {
                     this.proxyUrl = localStorage.getItem('proxyUrl') || '';
                     this.proxyUrlInput.value = this.proxyUrl;
 
-                    this.videoUrlInput.value = 'https://1024terabox.com/s/1hlC-j_45cfOepFFf1n-nng';
+                    this.videoUrlInput.value = 'https://1024terabox.com/s/15JQmsttbt3XLOV-SO7HITA';
                     
                     this.setupEventListeners();
                     this.loadSettings();
-                    this.loadHistory();
+                    this.renderHistory();
                 },
                 
                 setupEventListeners() {
@@ -1153,129 +1332,118 @@ if (isset($_GET['download'])) {
                 },
 
                 async resolveTeraboxLink(url) {
-                    const response = await fetch(`?resolve&url=${encodeURIComponent(url)}`);
-                    const result = await response.json();
+                    UI.showToast('Starting Terabox resolution...', 'info');
                     
-                    if (result.success) {
-                        return result.url;
-                    } else {
-                        throw new Error(result.message || 'Failed to resolve Terabox link');
+                    try {
+                        // Try server-side resolution first
+                        const response = await fetch(`?resolve&url=${encodeURIComponent(url)}`);
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            UI.showToast('Terabox link resolved successfully!', 'success');
+                            return result.url;
+                        } else {
+                            // Show more detailed error information
+                            let errorMsg = result.message || 'Failed to resolve Terabox link';
+                            if (result.errors && result.errors.length > 0) {
+                                console.warn('Terabox Resolution Errors:', result.errors);
+                                
+                                // Check if all errors are network-related (sandbox environment)
+                                const networkErrors = result.errors.filter(error => 
+                                    error.includes('Could not resolve host') || 
+                                    error.includes('cURL error') ||
+                                    error.includes('HTTP 0')
+                                );
+                                
+                                if (networkErrors.length === result.errors.length) {
+                                    UI.showToast('Network restrictions detected. Trying client-side resolution...', 'info');
+                                    return await this.resolveTeraboxClientSide(url);
+                                }
+                                
+                                errorMsg += '. Check console for details.';
+                            }
+                            throw new Error(errorMsg);
+                        }
+                    } catch (error) {
+                        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                            throw new Error('Network error. Please check your connection.');
+                        }
+                        
+                        // If server-side resolution fails, try client-side
+                        if (error.message.includes('Failed to resolve')) {
+                            UI.showToast('Trying alternative resolution method...', 'info');
+                            try {
+                                return await this.resolveTeraboxClientSide(url);
+                            } catch (clientError) {
+                                throw new Error('All resolution methods failed. ' + clientError.message);
+                            }
+                        }
+                        
+                        throw error;
                     }
                 },
 
-                updatePlayPauseIcon() {
-                    const icon = this.video.paused ? 'fa-play' : 'fa-pause';
-                    this.buttons.playPauseBtn.innerHTML = `<i class="fas ${icon}"></i>`;
-                },
+                async resolveTeraboxClientSide(url) {
+                    // Client-side fallback using CORS proxies
+                    const proxies = [
+                        'https://api.allorigins.win/raw?url=',
+                        'https://corsproxy.io/?',
+                        'https://thingproxy.freeboard.io/fetch/'
+                    ];
+                    
+                    for (const proxy of proxies) {
+                        try {
+                            UI.showToast(`Trying proxy resolution...`, 'info');
+                            
+                            const response = await fetch(proxy + encodeURIComponent(url), {
+                                method: 'GET',
+                                headers: {
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                                }
+                            });
+                            
+                            if (!response.ok) continue;
+                            
+                            const html = await response.text();
+                            
+                            // Enhanced pattern matching for video URLs
+                            const patterns = [
+                                /"dlink":"(https?:\/\/[^"]+)"/,
+                                /"play_url":"(https?:\/\/[^"]+)"/,
+                                /sources:\["(https?:\/\/[^"]+)"\]/,
+                                /"video_url":"(https?:\/\/[^"]+)"/,
+                                /videoUrl["']?\s*:\s*["']([^"']+)/,
+                                /src["']?\s*:\s*["']([^"']+\.mp4[^"']*)/i,
+                                /"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/,
+                                /"downloadUrl":"(https?:\/\/[^"]+)"/,
+                                /"stream_url":"(https?:\/\/[^"]+)"/
+                            ];
 
-                seekVideo(seconds) {
-                    this.video.currentTime = Math.max(0, Math.min(this.video.duration, this.video.currentTime + seconds));
-                    UI.showActionIcon(seconds > 0 ? 'fa-forward' : 'fa-backward');
-                },
-
-                setVolume(value) {
-                    this.video.volume = value;
-                    this.updateVolumeIcon();
-                },
-
-                seek(value) {
-                    this.video.currentTime = (value / 100) * this.video.duration;
-                },
-
-                renderHistory() {
-                    // Get history from localStorage
-                    const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
-                    if (history.length === 0) {
-                        this.historyTab.innerHTML = '<p class="text-gray-400 text-sm">No history yet</p>';
-                        return;
+                            for (const pattern of patterns) {
+                                const match = html.match(pattern);
+                                if (match && match[1]) {
+                                    const resolvedUrl = match[1].replace(/\\/g, '');
+                                    // Validate URL
+                                    try {
+                                        new URL(resolvedUrl);
+                                        if (resolvedUrl.includes('.mp4') || 
+                                            resolvedUrl.includes('video') || 
+                                            resolvedUrl.includes('stream') ||
+                                            resolvedUrl.includes('dlink')) {
+                                            return resolvedUrl;
+                                        }
+                                    } catch (e) {
+                                        continue;
+                                    }
+                                }
+                            }
+                        } catch (error) {
+                            console.warn(`Client-side proxy ${proxy} failed:`, error);
+                            continue;
+                        }
                     }
                     
-                    this.historyTab.innerHTML = history.map(item => `
-                        <div class="mb-2 p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700" onclick="Player.loadFromHistory('${item.url}')">
-                            <div class="text-sm font-bold truncate">${item.title}</div>
-                            <div class="text-xs text-gray-400">${new Date(item.timestamp).toLocaleDateString()}</div>
-                        </div>
-                    `).join('');
-                },
-
-                toggleTheaterMode() {
-                    document.body.classList.toggle('theater-mode');
-                },
-
-                togglePip() {
-                    if (document.pictureInPictureElement) {
-                        document.exitPictureInPicture();
-                    } else if (document.pictureInPictureEnabled) {
-                        this.video.requestPictureInPicture();
-                    }
-                },
-
-                updateFullscreenIcon() {
-                    const btn = this.buttons.fullscreenBtn;
-                    const icon = document.fullscreenElement ? 'fa-compress' : 'fa-expand';
-                    btn.innerHTML = `<i class="fas ${icon}"></i>`;
-                },
-
-                handleVideoError() {
-                    UI.showToast('Error loading video. Please check the URL.', 'error');
-                },
-
-                showCustomContextMenu(e) {
-                    e.preventDefault();
-                    this.customContextMenu.style.left = e.pageX + 'px';
-                    this.customContextMenu.style.top = e.pageY + 'px';
-                    this.customContextMenu.classList.remove('hidden');
-                },
-
-                updateThumbnail(e) {
-                    if (!this.video.duration) return;
-                    
-                    const rect = this.progressBar.getBoundingClientRect();
-                    const percent = (e.clientX - rect.left) / rect.width;
-                    const time = percent * this.video.duration;
-                    
-                    this.thumbnailTime.textContent = this.formatTime(time);
-                    this.thumbnailContainer.style.left = `${e.clientX - rect.left - 80}px`;
-                    this.thumbnailContainer.classList.add('visible');
-                },
-
-                handleKeyboardShortcuts(e) {
-                    if (document.activeElement.tagName === 'INPUT') return;
-                    
-                    switch (e.code) {
-                        case 'Space':
-                            e.preventDefault();
-                            this.togglePlayPause();
-                            break;
-                        case 'ArrowLeft':
-                            e.preventDefault();
-                            this.seekVideo(-5);
-                            break;
-                        case 'ArrowRight':
-                            e.preventDefault();
-                            this.seekVideo(5);
-                            break;
-                        case 'ArrowUp':
-                            e.preventDefault();
-                            this.video.volume = Math.min(1, this.video.volume + 0.1);
-                            this.volumeSlider.value = this.video.volume;
-                            this.updateVolumeIcon();
-                            break;
-                        case 'ArrowDown':
-                            e.preventDefault();
-                            this.video.volume = Math.max(0, this.video.volume - 0.1);
-                            this.volumeSlider.value = this.video.volume;
-                            this.updateVolumeIcon();
-                            break;
-                        case 'KeyF':
-                            e.preventDefault();
-                            this.toggleFullscreen();
-                            break;
-                        case 'KeyM':
-                            e.preventDefault();
-                            this.toggleMute();
-                            break;
-                    }
+                    throw new Error('All client-side resolution methods failed. The link may require login or be invalid.');
                 },
 
                 addToHistory(url) {
@@ -1367,18 +1535,23 @@ if (isset($_GET['download'])) {
                         UI.showActionIcon('fa-pause');
                     }
                 },
-                
-                seek(seconds) {
+
+                updatePlayPauseIcon() {
+                    const icon = this.video.paused ? 'fa-play' : 'fa-pause';
+                    this.buttons.playPauseBtn.innerHTML = `<i class="fas ${icon}"></i>`;
+                },
+
+                seekVideo(seconds) {
                     this.video.currentTime = Math.max(0, Math.min(this.video.duration, this.video.currentTime + seconds));
                     UI.showActionIcon(seconds > 0 ? 'fa-forward' : 'fa-backward');
                 },
-                
-                onProgressInput() {
-                    this.video.currentTime = this.progressBar.value;
+
+                seek(value) {
+                    this.video.currentTime = (value / 100) * this.video.duration;
                 },
-                
-                updateVolume() {
-                    this.video.volume = this.volumeSlider.value;
+
+                setVolume(value) {
+                    this.video.volume = value;
                     this.updateVolumeIcon();
                 },
                 
@@ -1412,6 +1585,12 @@ if (isset($_GET['download'])) {
                         document.exitFullscreen();
                     }
                 },
+
+                updateFullscreenIcon() {
+                    const btn = this.buttons.fullscreenBtn;
+                    const icon = document.fullscreenElement ? 'fa-compress' : 'fa-expand';
+                    btn.innerHTML = `<i class="fas ${icon}"></i>`;
+                },
                 
                 toggleTheaterMode() {
                     document.body.classList.toggle('theater-mode');
@@ -1442,8 +1621,19 @@ if (isset($_GET['download'])) {
                     
                     UI.showToast('Download started', 'success');
                 },
-                
-                showThumbnail(e) {
+
+                handleVideoError() {
+                    UI.showToast('Error loading video. Please check the URL.', 'error');
+                },
+
+                showCustomContextMenu(e) {
+                    e.preventDefault();
+                    this.customContextMenu.style.left = e.pageX + 'px';
+                    this.customContextMenu.style.top = e.pageY + 'px';
+                    this.customContextMenu.classList.remove('hidden');
+                },
+
+                updateThumbnail(e) {
                     if (!this.video.duration) return;
                     
                     const rect = this.progressBar.getBoundingClientRect();
@@ -1453,153 +1643,22 @@ if (isset($_GET['download'])) {
                     this.thumbnailTime.textContent = this.formatTime(time);
                     this.thumbnailContainer.style.left = `${e.clientX - rect.left - 80}px`;
                     this.thumbnailContainer.classList.add('visible');
-                    
-                    // Generate thumbnail
-                    this.generateThumbnail(time);
                 },
-                
-                hideThumbnail() {
-                    this.thumbnailContainer.classList.remove('visible');
-                },
-                
-                generateThumbnail(time) {
-                    const canvas = this.thumbnailCanvas;
-                    const ctx = canvas.getContext('2d');
-                    
-                    canvas.width = 160;
-                    canvas.height = 90;
-                    
-                    // Create a temporary video element for thumbnail
-                    const tempVideo = document.createElement('video');
-                    tempVideo.src = this.video.src;
-                    tempVideo.currentTime = time;
-                    tempVideo.muted = true;
-                    
-                    tempVideo.addEventListener('seeked', () => {
-                        ctx.drawImage(tempVideo, 0, 0, canvas.width, canvas.height);
-                    }, { once: true });
-                },
-                
-                toggleSettings() {
-                    this.settingsMenu.classList.toggle('hidden');
-                },
-                
-                switchTab(tab) {
-                    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-                    document.querySelector(`[data-tab="${tab}"]`).classList.add('active');
-                    
-                    document.getElementById('settings-tab').classList.toggle('hidden', tab !== 'settings');
-                    document.getElementById('history-tab').classList.toggle('hidden', tab !== 'history');
-                },
-                
-                setPlaybackSpeed(speed) {
-                    this.video.playbackRate = parseFloat(speed);
-                    UI.showToast(`Playback speed: ${speed}x`, 'info');
-                },
-                
-                setLoop(loop) {
-                    this.video.loop = loop;
-                    localStorage.setItem('videoLoop', loop);
-                },
-                
-                onVideoEnded() {
-                    this.playPauseBtn.innerHTML = '<i class="fas fa-play"></i>';
-                },
-                
-                onVideoError(e) {
-                    UI.showToast('Error loading video', 'error');
-                    console.error('Video error:', e);
-                },
-                
-                handleKeyboard(e) {
-                    if (document.activeElement.tagName === 'INPUT') return;
-                    
-                    switch (e.code) {
-                        case 'Space':
-                            e.preventDefault();
-                            this.togglePlayPause();
-                            break;
-                        case 'ArrowLeft':
-                            e.preventDefault();
-                            this.seek(-5);
-                            break;
-                        case 'ArrowRight':
-                            e.preventDefault();
-                            this.seek(5);
-                            break;
-                        case 'ArrowUp':
-                            e.preventDefault();
-                            this.video.volume = Math.min(1, this.video.volume + 0.1);
-                            this.volumeSlider.value = this.video.volume;
-                            this.updateVolumeIcon();
-                            break;
-                        case 'ArrowDown':
-                            e.preventDefault();
-                            this.video.volume = Math.max(0, this.video.volume - 0.1);
-                            this.volumeSlider.value = this.video.volume;
-                            this.updateVolumeIcon();
-                            break;
-                        case 'KeyF':
-                            e.preventDefault();
-                            this.toggleFullscreen();
-                            break;
-                        case 'KeyM':
-                            e.preventDefault();
-                            this.toggleMute();
-                            break;
-                    }
-                },
-                
-                saveToHistory(originalUrl, resolvedUrl) {
+
+                renderHistory() {
+                    // Get history from localStorage
                     const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
-                    const entry = {
-                        originalUrl,
-                        resolvedUrl,
-                        timestamp: Date.now(),
-                        title: this.extractTitle(originalUrl)
-                    };
-                    
-                    // Remove duplicate entries
-                    const filtered = history.filter(item => item.originalUrl !== originalUrl);
-                    filtered.unshift(entry);
-                    
-                    // Keep only last 50 entries
-                    const limited = filtered.slice(0, 50);
-                    localStorage.setItem('videoHistory', JSON.stringify(limited));
-                    
-                    this.loadHistory();
-                },
-                
-                loadHistory() {
-                    const history = JSON.parse(localStorage.getItem('videoHistory') || '[]');
-                    const historyTab = document.getElementById('history-tab');
-                    
                     if (history.length === 0) {
-                        historyTab.innerHTML = '<p class="text-gray-400 text-sm">No history yet</p>';
+                        this.historyTab.innerHTML = '<p class="text-gray-400 text-sm">No history yet</p>';
                         return;
                     }
                     
-                    historyTab.innerHTML = history.map(item => `
-                        <div class="mb-2 p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700" onclick="Player.loadFromHistory('${item.originalUrl}')">
+                    this.historyTab.innerHTML = history.map(item => `
+                        <div class="mb-2 p-2 bg-gray-800 rounded cursor-pointer hover:bg-gray-700" onclick="Player.loadFromHistory('${item.url}')">
                             <div class="text-sm font-bold truncate">${item.title}</div>
                             <div class="text-xs text-gray-400">${new Date(item.timestamp).toLocaleDateString()}</div>
                         </div>
                     `).join('');
-                },
-                
-                loadFromHistory(url) {
-                    this.videoUrlInput.value = url;
-                    this.loadVideo();
-                    this.settingsMenu.classList.add('hidden');
-                },
-                
-                extractTitle(url) {
-                    try {
-                        const urlObj = new URL(url);
-                        return urlObj.hostname + urlObj.pathname.split('/').pop();
-                    } catch {
-                        return url.substring(0, 50) + '...';
-                    }
                 },
                 
                 loadSettings() {
