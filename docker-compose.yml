@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  vibeplayer:
+    build: .
+    container_name: vibe-player
+    ports:
+      - "8000:8000"
+    environment:
+      - PHP_MEMORY_LIMIT=256M
+      - PHP_MAX_EXECUTION_TIME=60
+    volumes:
+      - ./index.php:/app/index.php:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  default:
+    name: vibeplayer-network
