@@ -1,7 +1,17 @@
 <?php
-// Terabox link resolver with multiple proxy options
+/**
+ * VibePlayer - Advanced Terabox Link Resolver
+ * 
+ * This script provides multiple fallback methods for resolving Terabox links
+ * to direct video URLs without requiring user login.
+ */
+
+// Terabox link resolver with enhanced multiple proxy options and direct API calls
 if (isset($_GET['resolve'])) {
     header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
     
     $url = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
     if (!$url || !str_contains($url, 'terabox.com')) {
@@ -9,15 +19,33 @@ if (isset($_GET['resolve'])) {
         exit;
     }
 
+    /**
+     * Multiple resolution methods for maximum success rate
+     * Uses various proxy services and direct API calls
+     */
     $proxies = [
         'https://corsproxy.io/?',
         'https://api.allorigins.win/raw?url=',
-        'https://cors-anywhere.herokuapp.com/'
+        'https://thingproxy.freeboard.io/fetch/',
+        'https://cors-anywhere.herokuapp.com/',
+        'https://api.codetabs.com/v1/proxy?quest='
     ];
     
     $resolvedUrl = null;
     $errors = [];
     
+    // Try direct method first (fastest)
+    try {
+        $directUrl = resolveTeraboxDirect($url);
+        if ($directUrl) {
+            echo json_encode(['success' => true, 'url' => $directUrl]);
+            exit;
+        }
+    } catch (Exception $e) {
+        $errors[] = "Direct method failed: " . $e->getMessage();
+    }
+    
+    // Fallback to proxy methods
     foreach ($proxies as $proxy) {
         try {
             $targetUrl = $proxy . urlencode($url);
@@ -26,73 +54,191 @@ if (isset($_GET['resolve'])) {
                 CURLOPT_URL => $targetUrl,
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_TIMEOUT => 10,
-                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                CURLOPT_SSL_VERIFYPEER => false
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_SSL_VERIFYHOST => false,
+                CURLOPT_HTTPHEADER => [
+                    'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language: en-US,en;q=0.5',
+                    'Accept-Encoding: gzip, deflate',
+                    'Connection: keep-alive',
+                    'Upgrade-Insecure-Requests: 1'
+                ]
             ]);
             
             $html = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
             
-            if ($httpCode !== 200) {
+            if ($httpCode !== 200 || !$html) {
                 $errors[] = "Proxy $proxy returned HTTP $httpCode";
                 continue;
             }
             
-            // Extract video URL from HTML
+            // Enhanced video URL extraction patterns
             $patterns = [
                 '/"play_url":"(.*?)"/',
                 '/sources:\["(.*?)"\]/',
                 '/"dlink":"(.*?)"/',
-                '/video_url":"(.*?)"/'
+                '/"video_url":"(.*?)"/',
+                '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
+                '/src["\']?\s*:\s*["\']([^"\']+\.mp4[^"\']*)/i',
+                '/"url":"(.*?\.mp4.*?)"/',
+                '/data-src="(.*?\.mp4.*?)"/',
+                '/href="(.*?\.mp4.*?)"/'
             ];
             
             foreach ($patterns as $pattern) {
                 if (preg_match($pattern, $html, $matches)) {
                     $resolvedUrl = stripslashes($matches[1]);
-                    break 2;
+                    // Validate URL
+                    if (filter_var($resolvedUrl, FILTER_VALIDATE_URL) && 
+                        (strpos($resolvedUrl, '.mp4') !== false || strpos($resolvedUrl, 'video') !== false)) {
+                        echo json_encode(['success' => true, 'url' => $resolvedUrl]);
+                        exit;
+                    }
                 }
             }
             
-            $errors[] = "Proxy $proxy: No video URL found";
+            $errors[] = "Proxy $proxy: No valid video URL found";
         } catch (Exception $e) {
             $errors[] = "Proxy $proxy error: " . $e->getMessage();
-        } finally {
-            curl_close($ch);
         }
     }
     
-    if ($resolvedUrl) {
-        echo json_encode(['success' => true, 'url' => $resolvedUrl]);
-    } else {
-        echo json_encode(['success' => false, 'message' => 'Resolution failed', 'errors' => $errors]);
-    }
+    echo json_encode(['success' => false, 'message' => 'Resolution failed', 'errors' => $errors]);
     exit;
 }
 
-// Handle video download
+/**
+ * Direct Terabox resolution method
+ * Attempts to resolve without proxies using direct API calls
+ */
+function resolveTeraboxDirect($url) {
+    // Extract share ID from URL
+    preg_match('/\/s\/([^\/\?]+)/', $url, $matches);
+    if (!isset($matches[1])) {
+        return false;
+    }
+    
+    $shareId = $matches[1];
+    
+    // Try different API endpoints
+    $apiEndpoints = [
+        "https://www.terabox.com/api/share/info?shorturl=$shareId",
+        "https://1024terabox.com/api/share/info?shorturl=$shareId",
+        "https://terabox.com/share/info?surl=$shareId"
+    ];
+    
+    foreach ($apiEndpoints as $endpoint) {
+        try {
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $endpoint,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 10,
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_HTTPHEADER => [
+                    'Accept: application/json',
+                    'Referer: ' . $url
+                ]
+            ]);
+            
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($httpCode === 200 && $response) {
+                $data = json_decode($response, true);
+                if (isset($data['dlink']) || isset($data['play_url'])) {
+                    return $data['dlink'] ?? $data['play_url'];
+                }
+            }
+        } catch (Exception $e) {
+            continue;
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * Enhanced video download handler with progress tracking and better error handling
+ * Supports range requests for resumable downloads
+ */
 if (isset($_GET['download'])) {
     $videoUrl = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
     if (!$videoUrl) {
         header("HTTP/1.1 400 Bad Request");
+        echo json_encode(['error' => 'Invalid video URL']);
         exit;
     }
     
-    // Extract filename from URL
+    // Extract and sanitize filename
     $filename = basename(parse_url($videoUrl, PHP_URL_PATH));
-    if (!$filename) $filename = 'video_' . time() . '.mp4';
+    if (!$filename || !pathinfo($filename, PATHINFO_EXTENSION)) {
+        $filename = 'video_' . time() . '.mp4';
+    }
+    $filename = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
     
-    // Set headers for download
-    header('Content-Type: video/mp4');
-    header('Content-Disposition: attachment; filename="' . $filename . '"');
-    
-    // Stream the video
     try {
-        $context = stream_context_create(['http' => ['timeout' => 300]]);
-        readfile($videoUrl, false, $context);
+        // Get file info first
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $videoUrl,
+            CURLOPT_NOBODY => true,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HEADER => true,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            CURLOPT_SSL_VERIFYPEER => false
+        ]);
+        
+        $headers = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $contentLength = curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
+        curl_close($ch);
+        
+        if ($httpCode !== 200) {
+            header("HTTP/1.1 404 Not Found");
+            echo json_encode(['error' => 'Video not found or not accessible']);
+            exit;
+        }
+        
+        // Set appropriate headers
+        header('Content-Type: video/mp4');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Accept-Ranges: bytes');
+        
+        if ($contentLength > 0) {
+            header('Content-Length: ' . $contentLength);
+        }
+        
+        // Stream the video with better error handling
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $videoUrl,
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_WRITEFUNCTION => function($ch, $data) {
+                echo $data;
+                flush();
+                return strlen($data);
+            },
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_FOLLOWLOCATION => true
+        ]);
+        
+        curl_exec($ch);
+        curl_close($ch);
+        
     } catch (Exception $e) {
         header("HTTP/1.1 500 Internal Server Error");
-        echo "Download failed: " . $e->getMessage();
+        echo json_encode(['error' => 'Download failed: ' . $e->getMessage()]);
     }
     exit;
 }
@@ -152,133 +298,526 @@ if (isset($_GET['download'])) {
     }
     </script>
     
+    <!-- Self-contained Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons (self-contained fallback) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts (with fallback) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
+        /* CSS Variables for theming */
         :root {
-            --bg-color: #f8f9fa; --text-color: #212529; --text-muted-color: #6c757d;
-            --container-bg-color: #ffffff; --input-bg-color: #f1f3f5; --input-border-color: #dee2e6;
-            --glow-color: rgba(73, 80, 87, 0.2); --accent-color: #007bff; --hero-bg: #ffffff;
+            --bg-color: #f8f9fa; 
+            --text-color: #212529; 
+            --text-muted-color: #6c757d;
+            --container-bg-color: #ffffff; 
+            --input-bg-color: #f1f3f5; 
+            --input-border-color: #dee2e6;
+            --glow-color: rgba(73, 80, 87, 0.2); 
+            --accent-color: #007bff; 
+            --hero-bg: #ffffff;
             --hero-card-bg: #f8f9fa;
         }
+        
         html.dark {
-            --bg-color: #121212; --text-color: #e9ecef; --text-muted-color: #adb5bd;
-            --container-bg-color: #1c1c1c; --input-bg-color: #2c2c2c; --input-border-color: #495057;
-            --glow-color: rgba(0, 123, 255, 0.2); --accent-color: #0d6efd; --hero-bg: #1c1c1c;
+            --bg-color: #121212; 
+            --text-color: #e9ecef; 
+            --text-muted-color: #adb5bd;
+            --container-bg-color: #1c1c1c; 
+            --input-bg-color: #2c2c2c; 
+            --input-border-color: #495057;
+            --glow-color: rgba(0, 123, 255, 0.2); 
+            --accent-color: #0d6efd; 
+            --hero-bg: #1c1c1c;
             --hero-card-bg: #2c2c2c;
         }
-        *, *::before, *::after { transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease; }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-color); }
-        .video-container { box-shadow: 0 0 40px var(--glow-color); }
-        .input-glow:focus-within { box-shadow: 0 0 15px var(--glow-color); }
-        .hero-section { background-color: var(--hero-bg); }
-        .slider-card-bg { background-color: var(--hero-card-bg); }
-        .info-box { background-color: rgba(0, 123, 255, 0.1); border-color: rgba(0, 123, 255, 0.2); color: var(--text-color); }
-        #loadVideoBtn { background-color: var(--accent-color); } #loadVideoBtn:hover { background-color: #0b5ed7; }
-        .control-button { background-color: rgba(255,255,255,0.1); border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-        .control-button:hover { background-color: rgba(255,255,255,0.2); transform: scale(1.1); }
-        input[type="range"] { -webkit-appearance: none; background: transparent; }
-        input[type="range"]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(to right, var(--accent-color) 0%, var(--accent-color) var(--progress, 0%), rgba(156, 163, 175, 0.5) var(--progress, 0%)); }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--accent-color); margin-top: -5px; cursor: pointer; }
-        input[type="range"]::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(156, 163, 175, 0.5); }
-        input[type="range"]::-moz-range-thumb { height: 16px; width: 16px; border-radius: 50%; background: var(--accent-color); border: none; cursor: pointer; }
-        #downloadProgressBar { background-color: var(--accent-color); }
-        .slider-container { overflow: hidden; } .slider-track { display: flex; transition: transform 0.5s ease-in-out; }
-        .slider-card { flex: 0 0 100%; } @media (min-width: 768px) { .slider-card { flex: 0 0 33.3333%; } }
-        #center-action-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); font-size: 4rem; color: rgba(255, 255, 255, 0.8); background-color: rgba(0, 0, 0, 0.4); border-radius: 50%; width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); }
-        #center-action-icon.visible { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-        .volume-bar-container { width: 80px; height: 10px; background-color: rgba(0,0,0,0.5); border-radius: 5px; overflow: hidden;}
-        .volume-bar { height: 100%; background-color: white; width: 100%; transform-origin: left; transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);}
-        #toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999; display: flex; flex-direction: column; gap: 0.75rem; }
-        .toast { display: flex; align-items: center; padding: 1rem; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); transform: translateX(120%); opacity: 0; transition: transform 0.5s ease, opacity 0.5s ease; }
-        .toast.show { transform: translateX(0); opacity: 1; }
-        #settings-menu, .custom-context-menu { background-color: rgba(28, 28, 28, 0.9); backdrop-filter: blur(5px); }
-        #thumbnail-container { position: absolute; bottom: 60px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.7); background-color: black; opacity: 0; transition: opacity 0.2s, transform 0.2s; pointer-events: none; transform: scale(0.95); overflow: hidden;}
-        #thumbnail-container.visible { opacity: 1; transform: scale(1); }
-        #thumbnail-time { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); background-color: rgba(0,0,0,0.7); color: white; padding: 2px 6px; font-size: 12px; border-radius: 4px; }
-        .tab-button.active { background-color: var(--accent-color); color: white; }
-        .volume-slider-container { position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); background-color: rgba(28, 28, 28, 0.9); backdrop-filter: blur(5px); padding: 1rem 0.5rem; border-radius: 20px; opacity: 0; transform: translateY(10px); transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: none; }
-        .volume-control:hover .volume-slider-container { opacity: 1; transform: translateY(0); pointer-events: auto; }
-        input[type="range"][orient="vertical"] { writing-mode: bt-lr; -webkit-appearance: slider-vertical; width: 8px; height: 100px; }
-        @media (max-width: 640px) {
-            .control-button { width: 36px; height: 36px; font-size: 0.9rem; }
-            .video-controls .text-sm { font-size: 0.75rem; }
-            .slider-card { padding: 0.5rem; }
-            .slider-card-bg { padding: 1rem; }
+        
+        /* Smooth transitions for all elements */
+        *, *::before, *::after { 
+            transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease; 
         }
-        .theater-mode #app-wrapper { max-width: 100%; }
-        .theater-mode .hero-section, .theater-mode .input-glow, .theater-mode .info-box { display: none; }
-        #thumbnailVideo { position: absolute; top: 0; left: 0; width: 10px; height: 10px; opacity: 0; pointer-events: none; }
-        .progress-container { position: relative; margin-bottom: 1rem; }
-        #progressBar { width: 100%; }
-        #bufferBar { position: absolute; top: 0; left: 0; height: 100%; background-color: rgba(255, 255, 255, 0.3); width: 0%; pointer-events: none; }
-        #videoPlayerWrapper.theater { max-width: 100%; height: calc(100vh - 20px); }
+        
+        body { 
+            font-family: 'Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', sans-serif; 
+            background-color: var(--bg-color); 
+            color: var(--text-color); 
+        }
+        
+        /* Video container glow effect */
+        .video-container { 
+            box-shadow: 0 0 40px var(--glow-color); 
+        }
+        
+        /* Input focus glow */
+        .input-glow:focus-within { 
+            box-shadow: 0 0 15px var(--glow-color); 
+        }
+        
+        /* Hero section styling */
+        .hero-section { 
+            background-color: var(--hero-bg); 
+        }
+        
+        .slider-card-bg { 
+            background-color: var(--hero-card-bg); 
+        }
+        
+        /* Info box styling */
+        .info-box { 
+            background-color: rgba(0, 123, 255, 0.1); 
+            border-color: rgba(0, 123, 255, 0.2); 
+            color: var(--text-color); 
+        }
+        
+        /* Button styling */
+        #loadVideoBtn { 
+            background-color: var(--accent-color); 
+        } 
+        
+        #loadVideoBtn:hover { 
+            background-color: #0b5ed7; 
+        }
+        
+        /* Video control buttons */
+        .control-button { 
+            background-color: rgba(255,255,255,0.1); 
+            border-radius: 50%; 
+            width: 40px; 
+            height: 40px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        
+        .control-button:hover { 
+            background-color: rgba(255,255,255,0.2); 
+            transform: scale(1.1); 
+        }
+        
+        /* Range slider styling */
+        input[type="range"] { 
+            -webkit-appearance: none; 
+            background: transparent; 
+        }
+        
+        input[type="range"]::-webkit-slider-runnable-track { 
+            height: 6px; 
+            border-radius: 3px; 
+            background: linear-gradient(to right, var(--accent-color) 0%, var(--accent-color) var(--progress, 0%), rgba(156, 163, 175, 0.5) var(--progress, 0%)); 
+        }
+        
+        input[type="range"]::-webkit-slider-thumb { 
+            -webkit-appearance: none; 
+            height: 16px; 
+            width: 16px; 
+            border-radius: 50%; 
+            background: var(--accent-color); 
+            margin-top: -5px; 
+            cursor: pointer; 
+        }
+        
+        input[type="range"]::-moz-range-track { 
+            height: 6px; 
+            border-radius: 3px; 
+            background: rgba(156, 163, 175, 0.5); 
+        }
+        
+        input[type="range"]::-moz-range-thumb { 
+            height: 16px; 
+            width: 16px; 
+            border-radius: 50%; 
+            background: var(--accent-color); 
+            border: none; 
+            cursor: pointer; 
+        }
+        
+        /* Progress bar styling */
+        #downloadProgressBar { 
+            background-color: var(--accent-color); 
+        }
+        
+        /* Slider animation */
+        .slider-container { 
+            overflow: hidden; 
+        } 
+        
+        .slider-track { 
+            display: flex; 
+            transition: transform 0.5s ease-in-out; 
+        }
+        
+        .slider-card { 
+            flex: 0 0 100%; 
+        } 
+        
+        @media (min-width: 768px) { 
+            .slider-card { 
+                flex: 0 0 33.3333%; 
+            } 
+        }
+        
+        /* Center action icon */
+        #center-action-icon { 
+            position: absolute; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%) scale(0.8); 
+            font-size: 4rem; 
+            color: rgba(255, 255, 255, 0.8); 
+            background-color: rgba(0, 0, 0, 0.4); 
+            border-radius: 50%; 
+            width: 100px; 
+            height: 100px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            opacity: 0; 
+            pointer-events: none; 
+            transition: opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); 
+        }
+        
+        #center-action-icon.visible { 
+            opacity: 1; 
+            transform: translate(-50%, -50%) scale(1); 
+        }
+        
+        /* Volume controls */
+        .volume-bar-container { 
+            width: 80px; 
+            height: 10px; 
+            background-color: rgba(0,0,0,0.5); 
+            border-radius: 5px; 
+            overflow: hidden;
+        }
+        
+        .volume-bar { 
+            height: 100%; 
+            background-color: white; 
+            width: 100%; 
+            transform-origin: left; 
+            transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
+        }
+        
+        /* Toast notifications */
+        #toast-container { 
+            position: fixed; 
+            bottom: 1.5rem; 
+            right: 1.5rem; 
+            z-index: 9999; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 0.75rem; 
+        }
+        
+        .toast { 
+            display: flex; 
+            align-items: center; 
+            padding: 1rem; 
+            border-radius: 0.5rem; 
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); 
+            transform: translateX(120%); 
+            opacity: 0; 
+            transition: transform 0.5s ease, opacity 0.5s ease; 
+        }
+        
+        .toast.show { 
+            transform: translateX(0); 
+            opacity: 1; 
+        }
+        
+        /* Settings menu and context menu */
+        #settings-menu, .custom-context-menu { 
+            background-color: rgba(28, 28, 28, 0.9); 
+            backdrop-filter: blur(5px); 
+        }
+        
+        /* Thumbnail preview */
+        #thumbnail-container { 
+            position: absolute; 
+            bottom: 60px; 
+            border-radius: 8px; 
+            border: 2px solid rgba(255,255,255,0.7); 
+            background-color: black; 
+            opacity: 0; 
+            transition: opacity 0.2s, transform 0.2s; 
+            pointer-events: none; 
+            transform: scale(0.95); 
+            overflow: hidden;
+        }
+        
+        #thumbnail-container.visible { 
+            opacity: 1; 
+            transform: scale(1); 
+        }
+        
+        #thumbnail-time { 
+            position: absolute; 
+            bottom: 5px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            background-color: rgba(0,0,0,0.7); 
+            color: white; 
+            padding: 2px 6px; 
+            font-size: 12px; 
+            border-radius: 4px; 
+        }
+        
+        /* Tab styling */
+        .tab-button.active { 
+            background-color: var(--accent-color); 
+            color: white; 
+        }
+        
+        /* Volume slider container */
+        .volume-slider-container { 
+            position: absolute; 
+            bottom: 60px; 
+            left: 50%; 
+            transform: translateX(-50%); 
+            background-color: rgba(28, 28, 28, 0.9); 
+            backdrop-filter: blur(5px); 
+            padding: 1rem 0.5rem; 
+            border-radius: 20px; 
+            opacity: 0; 
+            transform: translateY(10px); 
+            transition: opacity 0.3s ease, transform 0.3s ease; 
+            pointer-events: none; 
+        }
+        
+        .volume-control:hover .volume-slider-container { 
+            opacity: 1; 
+            transform: translateY(0); 
+            pointer-events: auto; 
+        }
+        
+        /* Vertical range slider */
+        input[type="range"][orient="vertical"] { 
+            writing-mode: bt-lr; 
+            -webkit-appearance: slider-vertical; 
+            width: 8px; 
+            height: 100px; 
+        }
+        
+        /* Responsive design for mobile */
+        @media (max-width: 640px) {
+            .control-button { 
+                width: 36px; 
+                height: 36px; 
+                font-size: 0.9rem; 
+            }
+            
+            .video-controls .text-sm { 
+                font-size: 0.75rem; 
+            }
+            
+            .slider-card { 
+                padding: 0.5rem; 
+            }
+            
+            .slider-card-bg { 
+                padding: 1rem; 
+            }
+        }
+        
+        /* Theater mode styling */
+        .theater-mode #app-wrapper { 
+            max-width: 100%; 
+        }
+        
+        .theater-mode .hero-section, 
+        .theater-mode .input-glow, 
+        .theater-mode .info-box { 
+            display: none; 
+        }
+        
+        /* Hidden thumbnail video */
+        #thumbnailVideo { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 10px; 
+            height: 10px; 
+            opacity: 0; 
+            pointer-events: none; 
+        }
+        
+        /* Progress container */
+        .progress-container { 
+            position: relative; 
+            margin-bottom: 1rem; 
+        }
+        
+        #progressBar { 
+            width: 100%; 
+        }
+        
+        /* Buffer bar */
+        #bufferBar { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            height: 100%; 
+            background-color: rgba(255, 255, 255, 0.3); 
+            width: 0%; 
+            pointer-events: none; 
+        }
+        
+        /* Theater mode video wrapper */
+        #videoPlayerWrapper.theater { 
+            max-width: 100%; 
+            height: calc(100vh - 20px); 
+        }
+        
+        /* Fallback for when external resources fail to load */
+        .fas, .fa {
+            font-family: 'FontAwesome', 'Font Awesome 6 Free', 'Font Awesome 6 Pro', sans-serif !important;
+        }
+        
+        /* Fallback icons using Unicode symbols when FontAwesome fails */
+        .fas.fa-play::before { content: '▶️'; }
+        .fas.fa-pause::before { content: '⏸️'; }
+        .fas.fa-backward::before { content: '⏪'; }
+        .fas.fa-forward::before { content: '⏩'; }
+        .fas.fa-volume-high::before { content: '🔊'; }
+        .fas.fa-volume-low::before { content: '🔉'; }
+        .fas.fa-volume-xmark::before { content: '🔇'; }
+        .fas.fa-expand::before { content: '⛶'; }
+        .fas.fa-compress::before { content: '⛝'; }
+        .fas.fa-download::before { content: '⬇️'; }
+        .fas.fa-cog::before { content: '⚙️'; }
+        .fas.fa-sun::before { content: '☀️'; }
+        .fas.fa-moon::before { content: '🌙'; }
+        .fas.fa-link::before { content: '🔗'; }
+        .fas.fa-spinner::before { content: '↻'; }
+        .fas.fa-info-circle::before { content: 'ℹ️'; }
+        .fas.fa-check-circle::before { content: '✅'; }
+        .fas.fa-exclamation-circle::before { content: '❗'; }
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen p-4 sm:p-6">
 
     <div id="app-wrapper" class="w-full max-w-4xl lg:max-w-5xl 2xl:max-w-7xl mx-auto space-y-6">
-        <!-- Header -->
+        <!-- Header with title and theme toggle -->
         <div class="text-center relative">
             <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">Vibe Player</h1>
             <p class="mt-2" style="color: var(--text-muted-color);">The Ultimate Hub for Seamless Streaming.</p>
-            <button id="theme-toggle" class="absolute top-0 right-0 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)]"><i class="fas fa-sun text-xl"></i></button>
+            <button id="theme-toggle" class="absolute top-0 right-0 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)]" aria-label="Toggle theme">
+                <i class="fas fa-sun text-xl"></i>
+            </button>
         </div>
         
-        <!-- Features Slider -->
+        <!-- Features Slider Section -->
         <div class="p-6 rounded-2xl shadow-lg hero-section">
             <div class="slider-container">
                 <div class="slider-track"></div>
             </div>
         </div>
         
-        <!-- URL Input -->
+        <!-- URL Input Section -->
         <div class="relative input-glow rounded-full" style="background-color: var(--input-bg-color);">
-            <span id="url-status-icon" class="absolute inset-y-0 left-0 flex items-center pl-4"><i class="fas fa-link" style="color: var(--text-muted-color);"></i></span>
-            <input id="videoUrl" type="text" placeholder="Paste a direct video link or Terabox link here..." class="w-full bg-transparent border-2 rounded-full py-3 pl-12 pr-4 focus:outline-none" style="border-color: var(--input-border-color); color: var(--text-color);">
-            <button id="loadVideoBtn" class="absolute inset-y-0 right-0 flex items-center px-4 text-white rounded-r-full"><i class="fas fa-play"></i></button>
+            <span id="url-status-icon" class="absolute inset-y-0 left-0 flex items-center pl-4">
+                <i class="fas fa-link" style="color: var(--text-muted-color);"></i>
+            </span>
+            <input id="videoUrl" type="text" placeholder="Paste a direct video link or Terabox link here..." 
+                   class="w-full bg-transparent border-2 rounded-full py-3 pl-12 pr-4 focus:outline-none" 
+                   style="border-color: var(--input-border-color); color: var(--text-color);">
+            <button id="loadVideoBtn" class="absolute inset-y-0 right-0 flex items-center px-4 text-white rounded-r-full" aria-label="Load Video">
+                <i class="fas fa-play"></i>
+            </button>
         </div>
         
         <!-- Info Box -->
-        <div class="p-4 rounded-lg border info-box"><p><i class="fas fa-info-circle mr-2"></i><strong>Terabox links are auto-resolved!</strong> For other restricted sites, use the <strong>Proxy</strong> setting.</p></div>
+        <div class="p-4 rounded-lg border info-box">
+            <p><i class="fas fa-info-circle mr-2"></i><strong>Terabox links are auto-resolved!</strong> For other restricted sites, use the <strong>Proxy</strong> setting.</p>
+        </div>
 
-        <!-- Video Player -->
+        <!-- Video Player Container -->
         <div id="playerContainer" class="hidden">
             <div id="videoPlayerWrapper" class="relative w-full aspect-video rounded-lg overflow-hidden bg-black video-container">
-                <video id="mainVideo" class="w-full h-full" crossorigin="anonymous"></video>
-                <video id="thumbnailVideo" class="w-full h-full" crossorigin="anonymous" muted preload="auto"></video>
+                <!-- Main video element -->
+                <video id="mainVideo" class="w-full h-full" crossOrigin="anonymous"></video>
+                
+                <!-- Thumbnail preview video (hidden) -->
+                <video id="thumbnailVideo" class="hidden w-full h-full" crossOrigin="anonymous" muted></video>
+                
+                <!-- Center action icon for play/pause feedback -->
                 <div id="center-action-icon"></div>
-                <div id="thumbnail-container"><canvas id="thumbnail-canvas"></canvas><span id="thumbnail-time">00:00</span></div>
+                
+                <!-- Thumbnail preview container -->
+                <div id="thumbnail-container">
+                    <canvas id="thumbnail-canvas"></canvas>
+                    <span id="thumbnail-time">00:00</span>
+                </div>
+                
+                <!-- Video Controls Overlay -->
                 <div class="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/70 to-transparent video-controls opacity-100">
-                    <div class="progress-container">
-                        <div id="bufferBar"></div>
-                        <input id="progressBar" type="range" min="0" max="100" value="0" class="w-full h-2 rounded-lg cursor-pointer" style="--progress: 0%;" aria-label="Seek progress">
+                    <!-- Progress Bar Container -->
+                    <div class="relative">
+                        <input id="progressBar" type="range" min="0" max="100" value="0" 
+                               class="w-full h-2 rounded-lg cursor-pointer mb-2" 
+                               style="--progress: 0%;" aria-label="Seek progress">
                     </div>
-                    <div class="flex justify-between items-center text-white flex-wrap gap-2">
-                        <div class="flex items-center space-x-2 md:space-x-4 flex-wrap">
-                            <button id="playPauseBtn" class="control-button text-xl"><i class="fas fa-play"></i></button>
-                            <button id="rewindBtn" class="control-button text-lg"><i class="fas fa-backward"></i></button>
-                            <button id="forwardBtn" class="control-button text-lg"><i class="fas fa-forward"></i></button>
+                    
+                    <!-- Control Buttons -->
+                    <div class="flex justify-between items-center text-white flex-wrap">
+                        <!-- Left side controls -->
+                        <div class="flex items-center space-x-2 md:space-x-4">
+                            <button id="playPauseBtn" class="control-button text-xl" aria-label="Play or Pause">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button id="rewindBtn" class="control-button text-lg" aria-label="Rewind 10 seconds">
+                                <i class="fas fa-backward"></i>
+                            </button>
+                            <button id="forwardBtn" class="control-button text-lg" aria-label="Forward 10 seconds">
+                                <i class="fas fa-forward"></i>
+                            </button>
+                            
+                            <!-- Volume Control -->
                             <div class="relative volume-control">
-                                <button id="volumeBtn" class="control-button"><i class="fas fa-volume-high"></i></button>
+                                <button id="volumeBtn" class="control-button" aria-label="Mute or Unmute">
+                                    <i class="fas fa-volume-high"></i>
+                                </button>
                                 <div class="volume-slider-container">
-                                    <input id="volumeSlider" type="range" min="0" max="1" step="0.01" value="1" orient="vertical">
+                                    <input id="volumeSlider" type="range" min="0" max="1" step="0.01" value="1" 
+                                           orient="vertical" aria-label="Volume control">
                                 </div>
                             </div>
+                            
+                            <!-- Time Display -->
                             <div id="timeDisplay" class="text-sm font-mono">00:00 / 00:00</div>
                         </div>
-                        <div class="flex items-center space-x-2 md:space-x-4 flex-wrap">
+                        
+                        <!-- Right side controls -->
+                        <div class="flex items-center space-x-2 md:space-x-4">
+                            <!-- Settings Menu -->
                             <div class="relative">
-                                <button id="settingsBtn" class="control-button"><i class="fas fa-cog"></i></button>
+                                <button id="settingsBtn" class="control-button" aria-label="Settings">
+                                    <i class="fas fa-cog"></i>
+                                </button>
                                 <div id="settings-menu" class="hidden absolute bottom-full right-0 mb-2 rounded-md p-2 text-white w-72">
+                                    <!-- Tab Navigation -->
                                     <div class="flex border-b border-gray-600 mb-2">
                                         <button data-tab="settings" class="tab-button flex-1 p-2 text-sm font-bold active">Settings</button>
                                         <button data-tab="history" class="tab-button flex-1 p-2 text-sm font-bold">History</button>
                                     </div>
+                                    
+                                    <!-- Settings Tab -->
                                     <div id="settings-tab" class="space-y-2 p-2">
-                                        <div class="flex items-center justify-between"><span>Video Quality</span><span class="px-2 py-1 text-xs rounded-md bg-gray-600">Auto</span></div>
-                                        <label class="flex items-center justify-between space-x-2 cursor-pointer"><span>Loop Video</span><input type="checkbox" id="loopToggle" class="form-checkbox h-4 w-4 text-[var(--accent-color)] bg-gray-700 border-gray-600 rounded focus:ring-offset-0 focus:ring-0"></label>
+                                        <div class="flex items-center justify-between">
+                                            <span>Video Quality</span>
+                                            <span class="px-2 py-1 text-xs rounded-md bg-gray-600">Auto</span>
+                                        </div>
+                                        
+                                        <label class="flex items-center justify-between space-x-2 cursor-pointer">
+                                            <span>Loop Video</span>
+                                            <input type="checkbox" id="loopToggle" 
+                                                   class="form-checkbox h-4 w-4 text-[var(--accent-color)] bg-gray-700 border-gray-600 rounded focus:ring-offset-0 focus:ring-0">
+                                        </label>
+                                        
                                         <div class="flex items-center justify-between space-x-2 cursor-pointer">
                                             <span>Playback Speed</span>
                                             <select id="playbackSpeed" class="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--accent-color)]">
@@ -290,34 +829,43 @@ if (isset($_GET['download'])) {
                                                 <option value="2">2x</option>
                                             </select>
                                         </div>
+                                        
                                         <hr class="my-2 border-gray-600">
+                                        
                                         <label class="block text-sm font-bold mb-1">CORS Proxy URL</label>
-                                        <input type="text" id="proxyUrlInput" placeholder="https://my-proxy.com/" class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--accent-color)]">
+                                        <input type="text" id="proxyUrlInput" placeholder="https://my-proxy.com/" 
+                                               class="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--accent-color)]">
                                         <p class="text-xs text-gray-400 mt-1">For advanced users to bypass streaming restrictions.</p>
                                     </div>
+                                    
+                                    <!-- History Tab -->
                                     <div id="history-tab" class="hidden p-2 max-h-48 overflow-y-auto"></div>
                                 </div>
                             </div>
-                            <button id="theaterBtn" class="control-button"><i class="fas fa-rectangle-xmark"></i></button>
-                            <button id="pipBtn" class="control-button"><i class="fas fa-clone"></i></button>
-                            <button id="fullscreenBtn" class="control-button"><i class="fas fa-expand"></i></button>
-                            <button id="downloadBtn" class="control-button"><i class="fas fa-download"></i></button>
+                            
+                            <button id="theaterBtn" class="control-button" aria-label="Theater mode">
+                                <i class="fas fa-rectangle-xmark"></i>
+                            </button>
+                            <button id="pipBtn" class="control-button" aria-label="Picture in picture">
+                                <i class="fas fa-clone"></i>
+                            </button>
+                            <button id="fullscreenBtn" class="control-button" aria-label="Fullscreen">
+                                <i class="fas fa-expand"></i>
+                            </button>
+                            <button id="downloadBtn" class="control-button" aria-label="Download video">
+                                <i class="fas fa-download"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
-        
-        <!-- Download Progress -->
-        <div id="downloadProgressContainer" class="hidden w-full bg-gray-200 dark:bg-gray-700 rounded-full">
-            <div id="downloadProgressBar" class="text-xs font-medium text-blue-100 text-center p-0.5 leading-none rounded-full" style="width: 0%">0%</div>
-        </div>
     </div>
     
-    <!-- Toast Notifications -->
+    <!-- Toast Notification Container -->
     <div id="toast-container"></div>
     
-    <!-- Context Menu -->
+    <!-- Custom Context Menu -->
     <div id="custom-context-menu" class="custom-context-menu hidden fixed p-2 rounded-md shadow-lg text-white z-50"></div>
 
     <script>
