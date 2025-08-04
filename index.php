@@ -6,17 +6,412 @@
  * to direct video URLs without requiring user login.
  */
 
-// Terabox link resolver with enhanced multiple proxy options and direct API calls
+/**
+ * Helper function to find text between two strings
+ */
+function findBetween($str, $start, $end) {
+    $startIndex = strpos($str, $start);
+    if ($startIndex === false) return "";
+    $startIndex += strlen($start);
+    
+    $endIndex = strpos($str, $end, $startIndex);
+    if ($endIndex === false) return "";
+    
+    return substr($str, $startIndex, $endIndex - $startIndex);
+}
+
+/**
+ * Get file size in human readable format
+ */
+function getSize($sizeBytes) {
+    if ($sizeBytes >= 1024 * 1024 * 1024) {
+        return number_format($sizeBytes / (1024 * 1024 * 1024), 2) . ' GB';
+    } else if ($sizeBytes >= 1024 * 1024) {
+        return number_format($sizeBytes / (1024 * 1024), 2) . ' MB';
+    } else if ($sizeBytes >= 1024) {
+        return number_format($sizeBytes / 1024, 2) . ' KB';
+    }
+    return $sizeBytes . ' bytes';
+}
+
+/**
+ * Enhanced file info function that returns detailed file information
+ * Similar to the problem statement's getFileInfo function
+ */
+function getFileInfo($link) {
+    try {
+        if (!$link) {
+            return ['error' => 'Link cannot be empty.'];
+        }
+
+        // Define headers similar to the problem statement example
+        $headers = [
+            'Accept: application/json, text/plain, */*',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: en-US,en;q=0.9,hi;q=0.8',
+            'Connection: keep-alive',
+            'DNT: 1',
+            'Host: www.terabox.app',
+            'Upgrade-Insecure-Requests: 1',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0',
+            'sec-ch-ua: "Microsoft Edge";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+            'Sec-Fetch-Dest: document',
+            'Sec-Fetch-Mode: navigate',
+            'Sec-Fetch-Site: none',
+            'Sec-Fetch-User: ?1',
+            'sec-ch-ua-mobile: ?0',
+            'sec-ch-ua-platform: "Windows"'
+        ];
+
+        // Step 1: Fetch the initial page
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $link,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $headers
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        
+        if (curl_errno($ch)) {
+            return ['error' => 'Failed to fetch the initial link. Status code: ' . curl_errno($ch)];
+        }
+        curl_close($ch);
+
+        if ($httpCode !== 200) {
+            return ['error' => 'Failed to fetch the initial link. Status code: ' . $httpCode];
+        }
+
+        // Step 2: Extract surl from the final URL
+        $parsedUrl = parse_url($finalUrl);
+        if (isset($parsedUrl['query'])) {
+            parse_str($parsedUrl['query'], $queryParams);
+            $surl = $queryParams['surl'] ?? null;
+        } else {
+            // Extract from path if not in query
+            $pathParts = explode('/', trim($parsedUrl['path'], '/'));
+            $surl = end($pathParts);
+        }
+        
+        if (!$surl) {
+            return ['error' => 'Invalid link. Please check the link.'];
+        }
+
+        // Step 3: Fetch the final URL to get tokens
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $finalUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $headers
+        ]);
+        
+        $text = curl_exec($ch);
+        curl_close($ch);
+
+        // Step 4: Extract required tokens
+        $jsToken = findBetween($text, 'fn%28%22', '%22%29');
+        $logid = findBetween($text, 'dp-logid=', '&');
+        $bdstoken = findBetween($text, 'bdstoken":"', '"');
+
+        if (!$jsToken || !$logid || !$bdstoken) {
+            return ['error' => 'Failed to extract required tokens.'];
+        }
+
+        // Step 5: Build API parameters
+        $params = http_build_query([
+            'app_id' => '250528',
+            'web' => '1',
+            'channel' => 'dubox',
+            'clienttype' => '0',
+            'jsToken' => $jsToken,
+            'dp-logid' => $logid,
+            'page' => '1',
+            'num' => '20',
+            'by' => 'name',
+            'order' => 'asc',
+            'site_referer' => $finalUrl,
+            'shorturl' => $surl,
+            'root' => '1'
+        ]);
+
+        // Step 6: Make API call
+        $apiUrl = 'https://dm.terabox.app/share/list?' . $params;
+        
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $apiUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $headers
+        ]);
+        
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $data = json_decode($response, true);
+
+        if (!$data || !$data['list'] || !count($data['list']) || $data['errno']) {
+            return ['error' => $data['errmsg'] ?? 'Failed to retrieve file list.'];
+        }
+
+        $fileInfo = $data['list'][0];
+        
+        // Create host for proxy URL
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost:8000';
+        
+        return [
+            'success' => true,
+            'file_name' => $fileInfo['server_filename'] ?? '',
+            'download_link' => $fileInfo['dlink'] ?? '',
+            'url' => $fileInfo['dlink'] ?? '',
+            'thumbnail' => $fileInfo['thumbs']['url3'] ?? '',
+            'file_size' => getSize(intval($fileInfo['size'] ?? 0)),
+            'size_bytes' => intval($fileInfo['size'] ?? 0),
+            'proxy_url' => "http://{$host}?proxy&url=" . urlencode($fileInfo['dlink']) . "&file_name=" . urlencode($fileInfo['server_filename'] ?? 'download')
+        ];
+
+    } catch (Exception $error) {
+        return ['error' => 'An error occurred: ' . $error->getMessage()];
+    }
+}
+
+/**
+ * Enhanced Direct Terabox resolution method using the robust approach
+ * Implements the advanced token extraction and API calling method
+ */
+function resolveTeraboxDirect($url) {
+    try {
+        // Define headers similar to the problem statement example
+        $headers = [
+            'Accept: application/json, text/plain, */*',
+            'Accept-Encoding: gzip, deflate, br',
+            'Accept-Language: en-US,en;q=0.9,hi;q=0.8',
+            'Connection: keep-alive',
+            'DNT: 1',
+            'Host: www.terabox.app',
+            'Upgrade-Insecure-Requests: 1',
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0',
+            'sec-ch-ua: "Microsoft Edge";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+            'Sec-Fetch-Dest: document',
+            'Sec-Fetch-Mode: navigate',
+            'Sec-Fetch-Site: none',
+            'Sec-Fetch-User: ?1',
+            'sec-ch-ua-mobile: ?0',
+            'sec-ch-ua-platform: "Windows"'
+        ];
+
+        // Step 1: Fetch the initial page to get the final URL and extract surl
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $headers
+        ]);
+        
+        $html = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        
+        if (curl_errno($ch)) {
+            throw new Exception('cURL Error: ' . curl_error($ch));
+        }
+        curl_close($ch);
+
+        if ($httpCode !== 200 || empty($html)) {
+            throw new Exception('Failed to fetch Terabox page. HTTP Code: ' . $httpCode);
+        }
+
+        // Step 2: Extract surl from the final URL
+        $parsedUrl = parse_url($finalUrl);
+        if (isset($parsedUrl['query'])) {
+            parse_str($parsedUrl['query'], $queryParams);
+            $surl = $queryParams['surl'] ?? null;
+        } else {
+            // Extract from path if not in query
+            $pathParts = explode('/', trim($parsedUrl['path'], '/'));
+            $surl = end($pathParts);
+        }
+        
+        if (!$surl) {
+            throw new Exception('Invalid link. Could not extract surl parameter.');
+        }
+
+        // Step 3: Extract required tokens from the HTML content
+        $jsToken = findBetween($html, 'fn%28%22', '%22%29');
+        $logid = findBetween($html, 'dp-logid=', '&');
+        $bdstoken = findBetween($html, 'bdstoken":"', '"');
+
+        if (!$jsToken || !$logid || !$bdstoken) {
+            // Try alternative extraction methods
+            if (!$jsToken) {
+                $jsToken = findBetween($html, 'jsToken":"', '"');
+            }
+            if (!$logid) {
+                $logid = findBetween($html, '"logid":"', '"');
+            }
+            if (!$bdstoken) {
+                $bdstoken = findBetween($html, '"bdstoken":"', '"');
+            }
+        }
+
+        if (!$jsToken || !$logid || !$bdstoken) {
+            throw new Exception('Failed to extract required tokens (jsToken, logid, bdstoken).');
+        }
+
+        // Step 4: Build API parameters for the share/list endpoint
+        $params = http_build_query([
+            'app_id' => '250528',
+            'web' => '1',
+            'channel' => 'dubox',
+            'clienttype' => '0',
+            'jsToken' => $jsToken,
+            'dp-logid' => $logid,
+            'page' => '1',
+            'num' => '20',
+            'by' => 'name',
+            'order' => 'asc',
+            'site_referer' => $finalUrl,
+            'shorturl' => $surl,
+            'root' => '1'
+        ]);
+
+        // Step 5: Make API call to get file information
+        $apiUrl = 'https://dm.terabox.app/share/list?' . $params;
+        
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $apiUrl,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $headers
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        
+        if (curl_errno($ch)) {
+            throw new Exception('API cURL Error: ' . curl_error($ch));
+        }
+        curl_close($ch);
+
+        if ($httpCode !== 200 || empty($response)) {
+            throw new Exception('Failed to fetch file list from API. HTTP Code: ' . $httpCode);
+        }
+
+        // Step 6: Parse API response and extract file information
+        $data = json_decode($response, true);
+        
+        if (!$data || !isset($data['list']) || empty($data['list']) || isset($data['errno'])) {
+            $errorMsg = $data['errmsg'] ?? 'Failed to retrieve file list from API response.';
+            throw new Exception($errorMsg);
+        }
+
+        $fileInfo = $data['list'][0];
+        $downloadLink = $fileInfo['dlink'] ?? null;
+        
+        if (!$downloadLink) {
+            throw new Exception('No download link found in API response.');
+        }
+
+        // Return the direct download link
+        return $downloadLink;
+
+    } catch (Exception $e) {
+        error_log('Enhanced Terabox Resolution Error: ' . $e->getMessage());
+        return false;
+    }
+}
+
+// CORS preflight handler
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Range');
+    header('Access-Control-Expose-Headers: Content-Length, Content-Range');
+    exit(0);
+}
+
+// POST endpoint for Terabox resolution (similar to problem statement)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_GET['resolve'])) {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Range');
+    header('Access-Control-Expose-Headers: Content-Length, Content-Range');
+    
+    try {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $link = $input['link'] ?? null;
+        
+        if (!$link) {
+            echo json_encode(['error' => 'No link provided in the request body.']);
+            exit;
+        }
+
+        $fileInfo = getFileInfo($link);
+        $statusCode = isset($fileInfo['error']) ? 400 : 200;
+        
+        http_response_code($statusCode);
+        echo json_encode($fileInfo);
+        exit;
+        
+    } catch (Exception $error) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid request: ' . $error->getMessage()]);
+        exit;
+    }
+}
+
+// Enhanced Terabox link resolver with improved API structure
 if (isset($_GET['resolve'])) {
     header('Content-Type: application/json');
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type');
+    header('Access-Control-Allow-Headers: Content-Type, Range');
+    header('Access-Control-Expose-Headers: Content-Length, Content-Range');
     
     $url = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
     if (!$url || !str_contains($url, 'terabox.com')) {
         echo json_encode(['success' => false, 'message' => 'Invalid Terabox URL']);
         exit;
+    }
+
+// Enhanced Terabox link resolver with improved API structure
+if (isset($_GET['resolve'])) {
+    header('Content-Type: application/json');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Range');
+    header('Access-Control-Expose-Headers: Content-Length, Content-Range');
+    
+    $url = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
+    if (!$url || !str_contains($url, 'terabox.com')) {
+        echo json_encode(['success' => false, 'message' => 'Invalid Terabox URL']);
+        exit;
+    }
+
+    // Try enhanced direct method first (most reliable)
+    try {
+        $fileInfo = getFileInfo($url);
+        if ($fileInfo && !isset($fileInfo['error'])) {
+            echo json_encode($fileInfo);
+            exit;
+        }
+        $errors[] = $fileInfo['error'] ?? "Enhanced method: No video URL found";
+    } catch (Exception $e) {
+        $errors[] = "Enhanced method failed: " . $e->getMessage();
     }
 
     /**
@@ -33,18 +428,6 @@ if (isset($_GET['resolve'])) {
     
     $resolvedUrl = null;
     $errors = [];
-    
-    // Try direct method first (fastest and most reliable)
-    try {
-        $directUrl = resolveTeraboxDirect($url);
-        if ($directUrl) {
-            echo json_encode(['success' => true, 'url' => $directUrl]);
-            exit;
-        }
-        $errors[] = "Direct method: No video URL found in page content";
-    } catch (Exception $e) {
-        $errors[] = "Direct method failed: " . $e->getMessage();
-    }
     
     // Fallback to proxy methods with enhanced error handling
     foreach ($proxies as $proxy) {
@@ -127,108 +510,94 @@ if (isset($_GET['resolve'])) {
 }
 
 /**
- * Enhanced Direct Terabox resolution method
- * Attempts to resolve without proxies using direct scraping
+ * Enhanced proxy download handler with range request support
+ * Based on the robust approach from the problem statement
  */
-function resolveTeraboxDirect($url) {
-    try {
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_HTTPHEADER => [
-                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language: en-US,en;q=0.5',
-                'Accept-Encoding: gzip, deflate',
-                'Connection: keep-alive',
-                'Upgrade-Insecure-Requests: 1',
-                'Cache-Control: no-cache',
-                'Pragma: no-cache'
-            ]
-        ]);
-        
-        $html = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        
-        if (curl_errno($ch)) {
-            throw new Exception('cURL Error: ' . curl_error($ch));
-        }
-        curl_close($ch);
-
-        if ($httpCode !== 200 || empty($html)) {
-            throw new Exception('Failed to fetch Terabox page. HTTP Code: ' . $httpCode);
-        }
-
-        // Enhanced pattern matching for video URLs
-        $resolvedUrl = null;
-        
-        // Method 1: Look for window.__INIT_DATA__ object
-        if (preg_match('/<script>window\.__INIT_DATA__\s*=\s*({.*?})<\/script>/', $html, $matches)) {
-            $data = json_decode($matches[1], true);
-            if ($data) {
-                // Navigate the JSON object to find the direct link
-                $resolvedUrl = $data['share_info']['dlink'] ?? 
-                              $data['file_list'][0]['dlink'] ?? 
-                              $data['share_info']['file_list'][0]['dlink'] ?? null;
-                
-                if ($resolvedUrl) {
-                    return $resolvedUrl;
-                }
-            }
-        }
-        
-        // Method 2: Enhanced regex patterns for video URLs
-        $patterns = [
-            '/"dlink":"(https?:\/\/[^"]+)"/',
-            '/"play_url":"(https?:\/\/[^"]+)"/',
-            '/sources:\["(https?:\/\/[^"]+)"\]/',
-            '/"video_url":"(https?:\/\/[^"]+)"/',
-            '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
-            '/src["\']?\s*:\s*["\']([^"\']+\.mp4[^"\']*)/i',
-            '/"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/',
-            '/data-src="(https?:\/\/[^"]+\.mp4[^"]*)"/',
-            '/href="(https?:\/\/[^"]+\.mp4[^"]*)"/',
-            '/"downloadUrl":"(https?:\/\/[^"]+)"/',
-            '/"stream_url":"(https?:\/\/[^"]+)"/'
-        ];
-        
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $html, $matches)) {
-                $candidate = stripslashes($matches[1]);
-                // Validate URL and ensure it contains video-related content
-                if (filter_var($candidate, FILTER_VALIDATE_URL) && 
-                    (strpos($candidate, '.mp4') !== false || 
-                     strpos($candidate, 'video') !== false ||
-                     strpos($candidate, 'stream') !== false ||
-                     strpos($candidate, 'dlink') !== false)) {
-                    return $candidate;
-                }
-            }
-        }
-        
-        // Method 3: Look for JSON data in script tags
-        if (preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scriptMatches)) {
-            foreach ($scriptMatches[1] as $script) {
-                // Look for URLs in JSON-like structures
-                if (preg_match('/"(?:dlink|play_url|video_url|downloadUrl|stream_url)":"(https?:\/\/[^"]+)"/', $script, $matches)) {
-                    $candidate = stripslashes($matches[1]);
-                    if (filter_var($candidate, FILTER_VALIDATE_URL)) {
-                        return $candidate;
-                    }
-                }
-            }
-        }
-
-    } catch (Exception $e) {
-        error_log('Terabox Direct Resolution Error: ' . $e->getMessage());
-        return false;
+if (isset($_GET['proxy'])) {
+    $downloadUrl = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
+    $fileName = filter_input(INPUT_GET, 'file_name', FILTER_SANITIZE_STRING) ?: 'download';
+    
+    if (!$downloadUrl) {
+        header("HTTP/1.1 400 Bad Request");
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'No URL provided for proxy.']);
+        exit;
     }
     
-    return false;
+    try {
+        // Define download headers similar to the problem statement
+        $dlHeaders = [
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language: en-US,en;q=0.5',
+            'Referer: https://terabox.com/',
+            'DNT: 1',
+            'Connection: keep-alive',
+            'Upgrade-Insecure-Requests: 1'
+        ];
+        
+        // Handle range requests
+        $rangeHeader = getallheaders()['Range'] ?? null;
+        if ($rangeHeader) {
+            $dlHeaders[] = 'Range: ' . $rangeHeader;
+        }
+        
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $downloadUrl,
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $dlHeaders,
+            CURLOPT_WRITEFUNCTION => function($ch, $data) {
+                echo $data;
+                flush();
+                return strlen($data);
+            },
+            CURLOPT_HEADERFUNCTION => function($ch, $header) {
+                $headerLine = trim($header);
+                if (strpos($headerLine, 'Content-Type:') === 0) {
+                    header($headerLine);
+                } elseif (strpos($headerLine, 'Content-Length:') === 0) {
+                    header($headerLine);
+                } elseif (strpos($headerLine, 'Content-Range:') === 0) {
+                    header($headerLine);
+                } elseif (strpos($headerLine, 'Accept-Ranges:') === 0) {
+                    header($headerLine);
+                }
+                return strlen($header);
+            }
+        ]);
+        
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        
+        if ($httpCode !== 200 && $httpCode !== 206) {
+            header("HTTP/1.1 502 Bad Gateway");
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'Failed to fetch download: ' . $httpCode]);
+            curl_close($ch);
+            exit;
+        }
+        
+        // Set CORS headers for proxy response
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Methods: GET,POST,OPTIONS');
+        header('Access-Control-Allow-Headers: Content-Type,Range');
+        header('Access-Control-Expose-Headers: Content-Length,Content-Range');
+        header('Cache-Control: public, max-age=3600');
+        header('Content-Disposition: inline; filename="' . urlencode($fileName) . '"');
+        header('Accept-Ranges: bytes');
+        
+        curl_exec($ch);
+        curl_close($ch);
+        
+    } catch (Exception $e) {
+        header("HTTP/1.1 500 Internal Server Error");
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Proxy error: ' . $e->getMessage()]);
+    }
+    exit;
 }
 
 /**
