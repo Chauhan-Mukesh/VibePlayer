@@ -1034,6 +1034,7 @@ if (isset($_GET['download'])) {
         <!-- Info Box -->
         <div class="p-4 rounded-lg border info-box">
             <p><i class="fas fa-info-circle mr-2"></i><strong>Terabox links are auto-resolved!</strong> For other restricted sites, use the <strong>Proxy</strong> setting.</p>
+            <p class="mt-2 text-sm"><i class="fas fa-keyboard mr-2"></i><strong>Keyboard Shortcuts:</strong> Space (play/pause), ←/→ (seek), ↑/↓ (volume), F (fullscreen), M (mute), T (theater mode)</p>
         </div>
 
         <!-- Video Player Container -->
