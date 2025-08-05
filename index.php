@@ -7,13 +7,20 @@
  */
 
 // Terabox link resolver with enhanced multiple proxy options and direct API calls
-if (isset($_GET['resolve'])) {
+if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false)) {
     header('Content-Type: application/json');
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type');
     
-    $url = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
+    // Handle POST requests with JSON body
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $input = json_decode(file_get_contents('php://input'), true);
+        $url = $input['link'] ?? $input['url'] ?? null;
+    } else {
+        $url = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
+    }
+    
     if (!$url || !str_contains($url, 'terabox.com')) {
         echo json_encode(['success' => false, 'message' => 'Invalid Terabox URL']);
         exit;
@@ -36,12 +43,12 @@ if (isset($_GET['resolve'])) {
     
     // Try direct method first (fastest and most reliable)
     try {
-        $directUrl = resolveTeraboxDirect($url);
-        if ($directUrl) {
-            echo json_encode(['success' => true, 'url' => $directUrl]);
+        $result = resolveTeraboxDirect($url);
+        if ($result['success']) {
+            echo json_encode($result);
             exit;
         }
-        $errors[] = "Direct method: No video URL found in page content";
+        $errors[] = "Direct method: " . ($result['error'] ?? 'No video URL found in page content');
     } catch (Exception $e) {
         $errors[] = "Direct method failed: " . $e->getMessage();
     }
@@ -127,11 +134,12 @@ if (isset($_GET['resolve'])) {
 }
 
 /**
- * Enhanced Direct Terabox resolution method
- * Attempts to resolve without proxies using direct scraping
+ * Enhanced Direct Terabox resolution method with improved token extraction
+ * and API calls to dm.terabox.app endpoint
  */
 function resolveTeraboxDirect($url) {
     try {
+        // Step 1: Fetch the initial page to get cookies and initial data
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
@@ -153,6 +161,7 @@ function resolveTeraboxDirect($url) {
         
         $html = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
         
         if (curl_errno($ch)) {
             throw new Exception('cURL Error: ' . curl_error($ch));
@@ -163,25 +172,101 @@ function resolveTeraboxDirect($url) {
             throw new Exception('Failed to fetch Terabox page. HTTP Code: ' . $httpCode);
         }
 
-        // Enhanced pattern matching for video URLs
-        $resolvedUrl = null;
+        // Step 2: Extract the 'surl' from the final URL
+        $surl = basename(parse_url($finalUrl, PHP_URL_PATH));
+        if (strpos($surl, '?') !== false) {
+            $surl = substr($surl, 0, strpos($surl, '?'));
+        }
         
-        // Method 1: Look for window.__INIT_DATA__ object
+        if (!$surl) {
+            throw new Exception("Could not find 'surl' in the link.");
+        }
+
+        // Step 3: Extract tokens using findBetween helper
+        $jsToken = findBetween($html, '"jsToken":"', '"');
+        $logid = findBetween($html, '"logid":"', '"');
+        $bdstoken = findBetween($html, '"bdstoken":"', '"');
+        
+        if (!$jsToken) {
+            // Try alternative patterns
+            $jsToken = findBetween($html, "'jsToken':'", "'");
+        }
+        
+        if (!$logid) {
+            $logid = findBetween($html, "'logid':'", "'");
+        }
+        
+        if (!$bdstoken) {
+            $bdstoken = findBetween($html, "'bdstoken':'", "'");
+        }
+
+        // Step 4: Try window.__INIT_DATA__ extraction first (most reliable)
         if (preg_match('/<script>window\.__INIT_DATA__\s*=\s*({.*?})<\/script>/', $html, $matches)) {
             $data = json_decode($matches[1], true);
-            if ($data) {
-                // Navigate the JSON object to find the direct link
-                $resolvedUrl = $data['share_info']['dlink'] ?? 
-                              $data['file_list'][0]['dlink'] ?? 
-                              $data['share_info']['file_list'][0]['dlink'] ?? null;
+            if ($data && isset($data['share_info']['file_list']) && !empty($data['share_info']['file_list'])) {
+                $fileList = $data['share_info']['file_list'];
+                $dlink = $fileList[0]['dlink'] ?? null;
                 
-                if ($resolvedUrl) {
-                    return $resolvedUrl;
+                if ($dlink) {
+                    return [
+                        'success' => true,
+                        'url' => $dlink,
+                        'file_name' => $fileList[0]['server_filename'] ?? 'video.mp4',
+                        'thumbnail' => $fileList[0]['thumbs']['url3'] ?? '',
+                        'size' => $fileList[0]['size'] ?? 0
+                    ];
                 }
             }
         }
-        
-        // Method 2: Enhanced regex patterns for video URLs
+
+        // Step 5: If tokens found, make API call to dm.terabox.app
+        if ($jsToken && $logid && $bdstoken) {
+            $apiUrl = "https://dm.terabox.app/share/list";
+            $params = [
+                'app_id' => '250528',
+                'jsToken' => $jsToken,
+                'logid' => $logid,
+                'bdstoken' => $bdstoken,
+                'shorturl' => $surl,
+                'root' => '1'
+            ];
+            
+            $ch = curl_init();
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $apiUrl . '?' . http_build_query($params),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 15,
+                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+                CURLOPT_SSL_VERIFYPEER => false,
+                CURLOPT_HTTPHEADER => [
+                    'Accept: application/json, text/plain, */*',
+                    'Accept-Language: en-US,en;q=0.9',
+                    'Referer: https://www.terabox.com/',
+                    'DNT: 1',
+                    'Connection: keep-alive'
+                ]
+            ]);
+            
+            $apiResponse = curl_exec($ch);
+            $apiHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+            
+            if ($apiHttpCode === 200 && $apiResponse) {
+                $apiData = json_decode($apiResponse, true);
+                if ($apiData && isset($apiData['list']) && !empty($apiData['list'])) {
+                    $file = $apiData['list'][0];
+                    return [
+                        'success' => true,
+                        'url' => $file['dlink'],
+                        'file_name' => $file['server_filename'] ?? 'video.mp4',
+                        'thumbnail' => $file['thumbs']['url3'] ?? '',
+                        'size' => $file['size'] ?? 0
+                    ];
+                }
+            }
+        }
+
+        // Step 6: Fallback to enhanced regex patterns
         $patterns = [
             '/"dlink":"(https?:\/\/[^"]+)"/',
             '/"play_url":"(https?:\/\/[^"]+)"/',
@@ -199,46 +284,73 @@ function resolveTeraboxDirect($url) {
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $html, $matches)) {
                 $candidate = stripslashes($matches[1]);
-                // Validate URL and ensure it contains video-related content
                 if (filter_var($candidate, FILTER_VALIDATE_URL) && 
                     (strpos($candidate, '.mp4') !== false || 
                      strpos($candidate, 'video') !== false ||
                      strpos($candidate, 'stream') !== false ||
                      strpos($candidate, 'dlink') !== false)) {
-                    return $candidate;
+                    return ['success' => true, 'url' => $candidate];
                 }
             }
         }
-        
-        // Method 3: Look for JSON data in script tags
+
+        // Step 7: Look for JSON data in script tags
         if (preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scriptMatches)) {
             foreach ($scriptMatches[1] as $script) {
-                // Look for URLs in JSON-like structures
                 if (preg_match('/"(?:dlink|play_url|video_url|downloadUrl|stream_url)":"(https?:\/\/[^"]+)"/', $script, $matches)) {
                     $candidate = stripslashes($matches[1]);
                     if (filter_var($candidate, FILTER_VALIDATE_URL)) {
-                        return $candidate;
+                        return ['success' => true, 'url' => $candidate];
                     }
                 }
             }
         }
 
+        return ['success' => false, 'error' => 'No video URL found in page content'];
+
     } catch (Exception $e) {
         error_log('Terabox Direct Resolution Error: ' . $e->getMessage());
-        return false;
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * Helper function to find text between two strings
+ * @param string $string The string to search in
+ * @param string $start The starting delimiter
+ * @param string $end The ending delimiter
+ * @return string|null The text between delimiters or null if not found
+ */
+function findBetween($string, $start, $end) {
+    $startPos = strpos($string, $start);
+    if ($startPos === false) {
+        return null;
     }
     
-    return false;
+    $startPos += strlen($start);
+    $endPos = strpos($string, $end, $startPos);
+    
+    if ($endPos === false) {
+        return null;
+    }
+    
+    return substr($string, $startPos, $endPos - $startPos);
 }
 
 /**
  * Enhanced video download handler with progress tracking and better error handling
- * Supports range requests for resumable downloads
+ * Supports range requests for resumable downloads and improved CORS handling
  */
 if (isset($_GET['download'])) {
+    // Add CORS headers for download endpoint
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Range');
+    
     $videoUrl = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
     if (!$videoUrl) {
         header("HTTP/1.1 400 Bad Request");
+        header('Content-Type: application/json');
         echo json_encode(['error' => 'Invalid video URL']);
         exit;
     }
@@ -250,8 +362,19 @@ if (isset($_GET['download'])) {
     }
     $filename = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
     
+    // Enhanced headers for better download support
+    $DL_HEADERS = [
+        'Accept: */*',
+        'Accept-Language: en-US,en;q=0.9',
+        'Accept-Encoding: identity;q=1, *;q=0',
+        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+        'Connection: keep-alive',
+        'Referer: https://www.terabox.com/',
+        'DNT: 1'
+    ];
+    
     try {
-        // Get file info first
+        // Get file info first with enhanced headers
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $videoUrl,
@@ -260,7 +383,8 @@ if (isset($_GET['download'])) {
             CURLOPT_HEADER => true,
             CURLOPT_TIMEOUT => 30,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            CURLOPT_SSL_VERIFYPEER => false
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => $DL_HEADERS
         ]);
         
         $headers = curl_exec($ch);
@@ -270,20 +394,41 @@ if (isset($_GET['download'])) {
         
         if ($httpCode !== 200) {
             header("HTTP/1.1 404 Not Found");
+            header('Content-Type: application/json');
             echo json_encode(['error' => 'Video not found or not accessible']);
             exit;
         }
         
-        // Set appropriate headers
+        // Handle range requests for resumable downloads
+        $range = $_SERVER['HTTP_RANGE'] ?? null;
+        $start = 0;
+        $end = $contentLength - 1;
+        
+        if ($range) {
+            if (preg_match('/bytes=(\d+)-(\d*)/', $range, $matches)) {
+                $start = intval($matches[1]);
+                if (!empty($matches[2])) {
+                    $end = intval($matches[2]);
+                }
+            }
+        }
+        
+        // Set appropriate headers with CORS support
+        if ($range) {
+            header('HTTP/1.1 206 Partial Content');
+            header("Content-Range: bytes $start-$end/$contentLength");
+        } else {
+            header('HTTP/1.1 200 OK');
+        }
+        
         header('Content-Type: video/mp4');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Accept-Ranges: bytes');
+        header('Content-Length: ' . ($end - $start + 1));
+        header('Cache-Control: no-cache, must-revalidate');
+        header('Expires: 0');
         
-        if ($contentLength > 0) {
-            header('Content-Length: ' . $contentLength);
-        }
-        
-        // Stream the video with better error handling
+        // Stream the video with better error handling and range support
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $videoUrl,
@@ -296,7 +441,8 @@ if (isset($_GET['download'])) {
             CURLOPT_TIMEOUT => 0,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_FOLLOWLOCATION => true
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER => array_merge($DL_HEADERS, $range ? ["Range: bytes=$start-$end"] : [])
         ]);
         
         curl_exec($ch);
@@ -522,6 +668,15 @@ if (isset($_GET['download'])) {
             --accent-color: #007bff; 
             --hero-bg: #ffffff;
             --hero-card-bg: #f8f9fa;
+            
+            /* Z-index layers */
+            --z-video-controls: 100;
+            --z-center-action: 700;
+            --z-volume-slider: 800;
+            --z-thumbnail: 900;
+            --z-settings-menu: 1000;
+            --z-context-menu: 1001;
+            --z-toast: 10000;
         }
         
         html.dark {
@@ -710,7 +865,8 @@ if (isset($_GET['download'])) {
             justify-content: center; 
             opacity: 0; 
             pointer-events: none; 
-            transition: opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1); 
+            transition: opacity 0.3s cubic-bezier(0.25, 0.1, 0.25, 1), transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+            z-index: var(--z-center-action);
         }
         
         #center-action-icon.visible { 
@@ -740,7 +896,7 @@ if (isset($_GET['download'])) {
             position: fixed; 
             bottom: 1.5rem; 
             right: 1.5rem; 
-            z-index: 10000; 
+            z-index: var(--z-toast); 
             display: flex; 
             flex-direction: column; 
             gap: 0.75rem; 
@@ -800,7 +956,14 @@ if (isset($_GET['download'])) {
         /* Settings menu and context menu */
         #settings-menu, .custom-context-menu { 
             background-color: rgba(28, 28, 28, 0.9); 
-            backdrop-filter: blur(5px); 
+            backdrop-filter: blur(5px);
+            z-index: var(--z-settings-menu);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Custom context menu specific styling */
+        .custom-context-menu {
+            z-index: var(--z-context-menu);
         }
         
         /* Thumbnail preview */
@@ -815,6 +978,7 @@ if (isset($_GET['download'])) {
             pointer-events: none; 
             transform: scale(0.95); 
             overflow: hidden;
+            z-index: var(--z-thumbnail);
         }
         
         #thumbnail-container.visible { 
@@ -853,7 +1017,8 @@ if (isset($_GET['download'])) {
             opacity: 0; 
             transform: translateY(10px); 
             transition: opacity 0.3s ease, transform 0.3s ease; 
-            pointer-events: none; 
+            pointer-events: none;
+            z-index: var(--z-volume-slider);
         }
         
         .volume-control:hover .volume-slider-container { 
@@ -898,6 +1063,70 @@ if (isset($_GET['download'])) {
             .feature-icon {
                 font-size: 1.5rem;
                 min-width: 2.5rem;
+            }
+            
+            /* Improved mobile search bar */
+            #videoUrl {
+                font-size: 16px; /* Prevents zoom on iOS */
+                padding-left: 2.5rem;
+                padding-right: 2.5rem;
+            }
+            
+            #loadVideoBtn {
+                padding: 0.5rem;
+            }
+            
+            /* Better mobile video controls */
+            .video-controls {
+                padding: 0.5rem;
+            }
+            
+            .video-controls .flex {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            
+            /* Mobile-friendly settings menu */
+            #settings-menu {
+                width: calc(100vw - 2rem);
+                max-width: 20rem;
+                right: auto;
+                left: 50%;
+                transform: translateX(-50%);
+                bottom: 4rem;
+            }
+            
+            /* Better mobile toast positioning */
+            #toast-container {
+                left: 1rem;
+                right: 1rem;
+                bottom: 1rem;
+            }
+            
+            .toast {
+                min-width: auto;
+                max-width: none;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            /* Extra small screens */
+            h1 {
+                font-size: 2rem !important;
+            }
+            
+            .video-controls .flex > div:first-child {
+                flex-wrap: wrap;
+            }
+            
+            #timeDisplay {
+                font-size: 0.7rem;
+                order: 10;
+                width: 100%;
+                text-align: center;
+                margin-top: 0.5rem;
+            }
+        }
             }
             
             /* Stack controls vertically on very small screens */
@@ -1056,7 +1285,7 @@ if (isset($_GET['download'])) {
                 </div>
                 
                 <!-- Video Controls Overlay -->
-                <div class="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/70 to-transparent video-controls opacity-100">
+                <div class="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/70 to-transparent video-controls opacity-100" style="z-index: var(--z-video-controls);">
                     <!-- Progress Bar Container -->
                     <div class="relative">
                         <input id="progressBar" type="range" min="0" max="100" value="0" 
