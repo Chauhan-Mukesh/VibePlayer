@@ -445,13 +445,18 @@ if (isset($_GET['download'])) {
         }
     </style>
     
-    <!-- FontAwesome Icons with fallback -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" 
-          onerror="this.onerror=null; this.remove(); document.getElementById('fontawesome-fallback').style.display='block';">
-    
-    <!-- Fallback FontAwesome styles when CDN fails -->
-    <style id="fontawesome-fallback" style="display: none;">
-        .fas, .fa { font-family: Arial, sans-serif; }
+    <!-- Self-hosted icon styles - always available -->
+    <style>
+        /* Icon font fallback using Unicode symbols */
+        .fas, .fa { 
+            font-family: Arial, sans-serif !important;
+            font-style: normal;
+            font-weight: normal;
+            display: inline-block;
+            text-decoration: none;
+        }
+        
+        /* Media player icons */
         .fa-play:before { content: '▶'; }
         .fa-pause:before { content: '⏸'; }
         .fa-backward:before { content: '⏪'; }
@@ -461,30 +466,48 @@ if (isset($_GET['download'])) {
         .fa-volume-xmark:before { content: '🔇'; }
         .fa-expand:before { content: '⛶'; }
         .fa-compress:before { content: '⛝'; }
+        
+        /* UI icons */
         .fa-download:before { content: '⬇'; }
         .fa-cog:before { content: '⚙'; }
         .fa-sun:before { content: '☀'; }
         .fa-moon:before { content: '🌙'; }
         .fa-link:before { content: '🔗'; }
-        .fa-spinner:before { content: '↻'; animation: spin 1s linear infinite; }
         .fa-info-circle:before { content: 'ℹ'; }
         .fa-check-circle:before { content: '✅'; }
-        .fa-exclamation-circle:before { content: '❗'; }
+        .fa-exclamation-circle:before { content: '⚠'; }
+        .fa-times-circle:before { content: '❌'; }
         .fa-rectangle-xmark:before { content: '📺'; }
-        .fa-clone:before { content: '📺'; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .fa-clone:before { content: '🖼'; }
+        
+        /* Feature icons */
+        .fa-server:before { content: '🖥'; }
+        .fa-keyboard:before { content: '⌨'; }
+        .fa-palette:before { content: '🎨'; }
+        .fa-expand-arrows-alt:before { content: '↔'; }
+        
+        /* Spinner animation */
+        .fa-spinner:before { content: '↻'; }
+        .fa-spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        
+        /* Enhanced icon styling */
+        .fas, .fa {
+            line-height: 1;
+            vertical-align: baseline;
+        }
     </style>
     
-    <!-- Google Fonts (with fallback) -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"
-          onerror="this.onerror=null; this.remove();">
-    
+    <!-- System fonts with fallbacks -->
     <style>
-        /* Fallback font when Google Fonts fails */
-        @font-face {
-            font-family: 'Inter-fallback';
-            src: local('system-ui'), local('-apple-system'), local('BlinkMacSystemFont'), local('Segoe UI'), local('Roboto');
+        /* Font family with comprehensive fallbacks */
+        body, input, button, select, textarea { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif;
         }
+    </style>
     
     <style>
         /* CSS Variables for theming */
@@ -520,9 +543,11 @@ if (isset($_GET['download'])) {
         }
         
         body { 
-            font-family: 'Inter', 'Inter-fallback', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif;
             background-color: var(--bg-color); 
             color: var(--text-color); 
+            margin: 0;
+            padding: 0;
         }
         
         /* Video container glow effect */
@@ -619,24 +644,53 @@ if (isset($_GET['download'])) {
             background-color: var(--accent-color); 
         }
         
-        /* Slider animation */
+        /* Slider animation - improved */
         .slider-container { 
-            overflow: hidden; 
+            overflow: hidden;
+            border-radius: 1rem;
         } 
         
         .slider-track { 
             display: flex; 
-            transition: transform 0.5s ease-in-out; 
+            transition: transform 0.5s ease-in-out;
+            width: 200%; /* Double width to accommodate duplicate cards */
         }
         
         .slider-card { 
             flex: 0 0 100%; 
+            padding: 0.5rem;
         } 
         
         @media (min-width: 768px) { 
             .slider-card { 
                 flex: 0 0 33.3333%; 
-            } 
+            }
+            .slider-track {
+                width: 200%; /* Still double for smooth infinite scroll */
+            }
+        }
+        
+        /* Card styling improvements */
+        .slider-card-bg { 
+            background-color: var(--hero-card-bg);
+            border: 1px solid var(--input-border-color);
+            transition: all 0.3s ease;
+            height: 100%;
+            min-height: 120px;
+        }
+        
+        .slider-card-bg:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px var(--glow-color);
+            border-color: var(--accent-color);
+        }
+        
+        .feature-icon {
+            font-size: 2rem;
+            color: var(--accent-color);
+            margin-right: 1rem;
+            min-width: 3rem;
+            text-align: center;
         }
         
         /* Center action icon */
@@ -681,32 +735,67 @@ if (isset($_GET['download'])) {
             transition: transform 0.2s cubic-bezier(0.25, 0.1, 0.25, 1);
         }
         
-        /* Toast notifications */
+        /* Toast notifications - enhanced for cross-browser compatibility */
         #toast-container { 
             position: fixed; 
             bottom: 1.5rem; 
             right: 1.5rem; 
-            z-index: 9999; 
+            z-index: 10000; 
             display: flex; 
             flex-direction: column; 
             gap: 0.75rem; 
+            pointer-events: none;
         }
         
         .toast { 
             display: flex; 
             align-items: center; 
-            padding: 1rem; 
+            padding: 1rem 1.25rem; 
             border-radius: 0.5rem; 
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); 
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); 
             transform: translateX(120%); 
             opacity: 0; 
-            transition: transform 0.5s ease, opacity 0.5s ease; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            min-width: 280px;
+            max-width: 400px;
+            word-wrap: break-word;
+            pointer-events: auto;
+            position: relative;
         }
         
         .toast.show { 
             transform: translateX(0); 
             opacity: 1; 
         }
+        
+        .toast-close {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background: none;
+            border: none;
+            color: inherit;
+            cursor: pointer;
+            font-size: 1.2rem;
+            line-height: 1;
+            opacity: 0.7;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .toast-close:hover {
+            opacity: 1;
+        }
+        
+        /* Toast types */
+        .toast.toast-info { background-color: #3b82f6; color: white; }
+        .toast.toast-success { background-color: #10b981; color: white; }
+        .toast.toast-error { background-color: #ef4444; color: white; }
+        .toast.toast-warning { background-color: #f59e0b; color: white; }
         
         /* Settings menu and context menu */
         #settings-menu, .custom-context-menu { 
@@ -781,8 +870,12 @@ if (isset($_GET['download'])) {
             height: 100px; 
         }
         
-        /* Responsive design for mobile */
+        /* Responsive design for mobile - enhanced */
         @media (max-width: 640px) {
+            #app-wrapper {
+                padding: 0.5rem;
+            }
+            
             .control-button { 
                 width: 36px; 
                 height: 36px; 
@@ -799,6 +892,59 @@ if (isset($_GET['download'])) {
             
             .slider-card-bg { 
                 padding: 1rem; 
+                min-height: 100px;
+            }
+            
+            .feature-icon {
+                font-size: 1.5rem;
+                min-width: 2.5rem;
+            }
+            
+            /* Stack controls vertically on very small screens */
+            .video-controls .flex {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            
+            /* Adjust toast for mobile */
+            #toast-container {
+                bottom: 1rem;
+                right: 1rem;
+                left: 1rem;
+            }
+            
+            .toast {
+                min-width: auto;
+                max-width: none;
+            }
+            
+            /* Improve input on mobile */
+            #videoUrl {
+                font-size: 16px; /* Prevent zoom on iOS */
+            }
+        }
+        
+        /* Improve contrast and accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+            
+            .slider-track {
+                transition: none;
+            }
+        }
+        
+        /* High contrast mode support */
+        @media (prefers-contrast: high) {
+            .slider-card-bg {
+                border-width: 2px;
+            }
+            
+            .control-button {
+                border: 1px solid currentColor;
             }
         }
         
@@ -850,31 +996,7 @@ if (isset($_GET['download'])) {
             max-width: 100%; 
             height: calc(100vh - 20px); 
         }
-        
-        /* Fallback for when external resources fail to load */
-        .fas, .fa {
-            font-family: 'FontAwesome', 'Font Awesome 6 Free', 'Font Awesome 6 Pro', sans-serif !important;
-        }
-        
-        /* Fallback icons using Unicode symbols when FontAwesome fails */
-        .fas.fa-play::before { content: '▶️'; }
-        .fas.fa-pause::before { content: '⏸️'; }
-        .fas.fa-backward::before { content: '⏪'; }
-        .fas.fa-forward::before { content: '⏩'; }
-        .fas.fa-volume-high::before { content: '🔊'; }
-        .fas.fa-volume-low::before { content: '🔉'; }
-        .fas.fa-volume-xmark::before { content: '🔇'; }
-        .fas.fa-expand::before { content: '⛶'; }
-        .fas.fa-compress::before { content: '⛝'; }
-        .fas.fa-download::before { content: '⬇️'; }
-        .fas.fa-cog::before { content: '⚙️'; }
-        .fas.fa-sun::before { content: '☀️'; }
-        .fas.fa-moon::before { content: '🌙'; }
-        .fas.fa-link::before { content: '🔗'; }
-        .fas.fa-spinner::before { content: '↻'; }
-        .fas.fa-info-circle::before { content: 'ℹ️'; }
-        .fas.fa-check-circle::before { content: '✅'; }
-        .fas.fa-exclamation-circle::before { content: '❗'; }
+
     </style>
 </head>
 <body class="flex items-center justify-center min-h-screen p-4 sm:p-6">
@@ -1099,6 +1221,11 @@ if (isset($_GET['download'])) {
             const HeroSlider = {
                 init() {
                     this.sliderTrack = document.querySelector('.slider-track');
+                    if (!this.sliderTrack) {
+                        console.warn('Slider track not found');
+                        return;
+                    }
+                    
                     this.features = [
                         { icon: 'fa-server', title: 'Resolver Built-in', desc: 'Automatically resolves Terabox links.' },
                         { icon: 'fa-keyboard', title: 'Shortcuts', desc: 'Control playback with your keyboard.' },
@@ -1108,33 +1235,59 @@ if (isset($_GET['download'])) {
                         { icon: 'fa-cog', title: 'Settings', desc: 'Loop your favorite videos.' }
                     ];
                     
-                    this.sliderTrack.innerHTML = [...this.features, ...this.features]
-                        .map(f => `
-                            <div class="slider-card p-4">
-                                <div class="p-6 rounded-xl h-full flex items-center space-x-4 slider-card-bg">
-                                    <i class="fas ${f.icon} text-2xl text-[var(--accent-color)]"></i>
-                                    <div>
-                                        <h3 class="font-bold text-lg">${f.title}</h3>
-                                        <p class="text-sm" style="color: var(--text-muted-color);">${f.desc}</p>
-                                    </div>
+                    this.renderSlider();
+                    this.currentIndex = 0;
+                    this.startAutoSlide();
+                },
+                
+                renderSlider() {
+                    // Create cards with improved structure
+                    const createCard = (feature) => `
+                        <div class="slider-card p-4">
+                            <div class="p-6 rounded-xl h-full flex items-center space-x-4 slider-card-bg">
+                                <div class="feature-icon">
+                                    <i class="fas ${feature.icon}"></i>
+                                </div>
+                                <div class="flex-1">
+                                    <h3 class="font-bold text-lg mb-1">${feature.title}</h3>
+                                    <p class="text-sm" style="color: var(--text-muted-color);">${feature.desc}</p>
                                 </div>
                             </div>
-                        `).join('');
+                        </div>
+                    `;
                     
-                    this.currentIndex = 0;
-                    setInterval(() => this.slide(), 3000);
+                    // Duplicate features for seamless infinite scroll
+                    this.sliderTrack.innerHTML = [...this.features, ...this.features]
+                        .map(createCard).join('');
+                },
+                
+                startAutoSlide() {
+                    this.slideInterval = setInterval(() => this.slide(), 3000);
+                    
+                    // Pause on hover
+                    this.sliderTrack.addEventListener('mouseenter', () => {
+                        clearInterval(this.slideInterval);
+                    });
+                    
+                    this.sliderTrack.addEventListener('mouseleave', () => {
+                        this.startAutoSlide();
+                    });
                 },
                 
                 slide() {
                     this.currentIndex++;
-                    this.sliderTrack.style.transform = `translateX(-${this.currentIndex * (100/3)}%)`;
+                    const slideWidth = window.innerWidth >= 768 ? 100/3 : 100; // 33.33% on desktop, 100% on mobile
+                    this.sliderTrack.style.transform = `translateX(-${this.currentIndex * slideWidth}%)`;
                     
+                    // Reset to beginning when reaching the end of first set
                     if (this.currentIndex >= this.features.length) {
                         setTimeout(() => {
                             this.sliderTrack.style.transition = 'none';
                             this.currentIndex = 0;
                             this.sliderTrack.style.transform = 'translateX(0)';
-                            setTimeout(() => this.sliderTrack.style.transition = 'transform 0.5s ease-in-out', 50);
+                            setTimeout(() => {
+                                this.sliderTrack.style.transition = 'transform 0.5s ease-in-out';
+                            }, 50);
                         }, 500);
                     }
                 }
@@ -1142,35 +1295,75 @@ if (isset($_GET['download'])) {
             
             // UI utilities module
             const UI = {
+                toastCounter: 0,
+                
                 /**
-                 * Displays a toast notification
+                 * Displays a toast notification with enhanced features
                  * @param {string} message - The message to display
-                 * @param {string} type - The type of toast (info, success, error)
+                 * @param {string} type - The type of toast (info, success, error, warning)
+                 * @param {number} duration - Duration in milliseconds (default: 5000)
                  */
-                showToast(message, type = 'info') {
+                showToast(message, type = 'info', duration = 5000) {
                     const toastContainer = document.getElementById('toast-container');
+                    if (!toastContainer) {
+                        console.warn('Toast container not found');
+                        return;
+                    }
+                    
                     const toast = document.createElement('div');
+                    const toastId = ++this.toastCounter;
                     const icons = { 
                         info: 'fa-info-circle', 
                         success: 'fa-check-circle', 
-                        error: 'fa-exclamation-circle' 
-                    };
-                    const colors = { 
-                        info: 'bg-blue-600', 
-                        success: 'bg-green-600', 
-                        error: 'bg-red-600' 
+                        error: 'fa-exclamation-circle',
+                        warning: 'fa-exclamation-circle'
                     };
                     
-                    toast.className = `toast text-white ${colors[type]}`;
-                    toast.innerHTML = `<i class="fas ${icons[type]} mr-3 text-xl"></i><span>${message}</span>`;
+                    toast.className = `toast toast-${type}`;
+                    toast.setAttribute('data-toast-id', toastId);
+                    toast.innerHTML = `
+                        <i class="fas ${icons[type]} mr-3 text-xl"></i>
+                        <span class="flex-1">${this.escapeHtml(message)}</span>
+                        <button class="toast-close" onclick="UI.closeToast(${toastId})" aria-label="Close">×</button>
+                    `;
+                    
                     toastContainer.appendChild(toast);
                     
-                    setTimeout(() => toast.classList.add('show'), 10);
+                    // Trigger show animation
+                    requestAnimationFrame(() => {
+                        toast.classList.add('show');
+                    });
                     
-                    setTimeout(() => {
+                    // Auto-hide after duration
+                    if (duration > 0) {
+                        setTimeout(() => this.closeToast(toastId), duration);
+                    }
+                },
+                
+                /**
+                 * Closes a specific toast
+                 * @param {number} toastId - The ID of the toast to close
+                 */
+                closeToast(toastId) {
+                    const toast = document.querySelector(`[data-toast-id="${toastId}"]`);
+                    if (toast) {
                         toast.classList.remove('show');
-                        toast.addEventListener('transitionend', () => toast.remove());
-                    }, 5000);
+                        setTimeout(() => {
+                            if (toast.parentNode) {
+                                toast.parentNode.removeChild(toast);
+                            }
+                        }, 300);
+                    }
+                },
+                
+                /**
+                 * Escapes HTML to prevent XSS
+                 * @param {string} text - Text to escape
+                 */
+                escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text;
+                    return div.innerHTML;
                 },
                 
                 /**
@@ -1180,6 +1373,8 @@ if (isset($_GET['download'])) {
                  */
                 showActionIcon(iconClass, content = '') {
                     const centerActionIcon = document.getElementById('center-action-icon');
+                    if (!centerActionIcon) return;
+                    
                     centerActionIcon.innerHTML = content || `<i class="fas ${iconClass}"></i>`;
                     centerActionIcon.classList.add('visible');
                     
@@ -1191,13 +1386,22 @@ if (isset($_GET['download'])) {
                 
                 /**
                  * Updates the URL input status icon
-                 * @param {string} status - The status (loading, idle)
+                 * @param {string} status - The status (loading, idle, error)
                  */
                 setUrlStatus(status) {
                     const iconEl = document.getElementById('url-status-icon');
-                    iconEl.innerHTML = status === 'loading' 
-                        ? `<i class="fas fa-spinner fa-spin" style="color: var(--accent-color);"></i>`
-                        : `<i class="fas fa-link" style="color: var(--text-muted-color);"></i>`;
+                    if (!iconEl) return;
+                    
+                    switch (status) {
+                        case 'loading':
+                            iconEl.innerHTML = `<i class="fas fa-spinner fa-spin" style="color: var(--accent-color);"></i>`;
+                            break;
+                        case 'error':
+                            iconEl.innerHTML = `<i class="fas fa-exclamation-circle" style="color: #ef4444;"></i>`;
+                            break;
+                        default:
+                            iconEl.innerHTML = `<i class="fas fa-link" style="color: var(--text-muted-color);"></i>`;
+                    }
                 }
             };
 
@@ -1296,38 +1500,90 @@ if (isset($_GET['download'])) {
                 
                 async loadVideo() {
                     let url = this.videoUrlInput.value.trim();
-                    if (!url) { UI.showToast('Please paste a video URL.', 'error'); return; }
+                    if (!url) { 
+                        UI.showToast('Please paste a video URL.', 'error'); 
+                        return; 
+                    }
+                    
+                    // Validate URL format
+                    try {
+                        new URL(url);
+                    } catch (e) {
+                        UI.showToast('Please enter a valid URL.', 'error');
+                        return;
+                    }
                     
                     this.playerContainer.classList.remove('hidden');
                     UI.setUrlStatus('loading');
 
                     try {
                         let finalUrl = url;
-                        if (url.includes('terabox.com')) {
+                        
+                        // Check if it's a Terabox or similar service link
+                        if (url.includes('terabox.com') || url.includes('1024terabox.com') || url.includes('4funbox.com')) {
                             UI.showToast('Resolving Terabox link...', 'info');
                             finalUrl = await this.resolveTeraboxLink(url);
-                            UI.showToast('Link resolved successfully!', 'success');
                         }
                         
+                        // Apply proxy if configured
                         const proxiedUrl = this.proxyUrl ? this.proxyUrl + encodeURIComponent(finalUrl) : finalUrl;
                         
+                        // Set video sources
                         this.video.src = proxiedUrl;
                         this.thumbnailVideo.src = proxiedUrl;
 
+                        // Load and attempt autoplay
                         this.video.load();
-                        const playPromise = this.video.play();
-                        if (playPromise !== undefined) {
-                            playPromise.catch(error => {
-                                if (error.name !== 'AbortError') {
-                                    UI.showToast('Auto-play blocked. Press play to start.', 'info');
-                                }
-                            });
+                        
+                        // Wait for metadata to load
+                        await new Promise((resolve, reject) => {
+                            const timeout = setTimeout(() => reject(new Error('Video loading timeout')), 10000);
+                            
+                            this.video.addEventListener('loadedmetadata', () => {
+                                clearTimeout(timeout);
+                                resolve();
+                            }, { once: true });
+                            
+                            this.video.addEventListener('error', () => {
+                                clearTimeout(timeout);
+                                reject(new Error('Video failed to load'));
+                            }, { once: true });
+                        });
+                        
+                        // Attempt autoplay
+                        try {
+                            await this.video.play();
+                            UI.showToast('Video loaded and playing!', 'success');
+                        } catch (playError) {
+                            if (playError.name !== 'AbortError') {
+                                UI.showToast('Video loaded. Click play to start.', 'info');
+                            }
                         }
+                        
+                        // Add to history
                         this.addToHistory(url);
+                        
                     } catch (error) {
-                        UI.showToast(error.message, 'error');
+                        console.error('Video loading error:', error);
+                        UI.setUrlStatus('error');
+                        
+                        // Provide specific error messages
+                        let errorMessage = 'Failed to load video. ';
+                        if (error.message.includes('CORS')) {
+                            errorMessage += 'Try enabling a CORS proxy in settings.';
+                        } else if (error.message.includes('network')) {
+                            errorMessage += 'Check your internet connection.';
+                        } else if (error.message.includes('timeout')) {
+                            errorMessage += 'The request timed out. Try again.';
+                        } else {
+                            errorMessage += error.message;
+                        }
+                        
+                        UI.showToast(errorMessage, 'error');
                     } finally {
-                        UI.setUrlStatus('idle');
+                        if (document.getElementById('url-status-icon').innerHTML.includes('fa-spinner')) {
+                            UI.setUrlStatus('idle');
+                        }
                     }
                 },
 
@@ -1336,73 +1592,95 @@ if (isset($_GET['download'])) {
                     
                     try {
                         // Try server-side resolution first
-                        const response = await fetch(`?resolve&url=${encodeURIComponent(url)}`);
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+                        
+                        const response = await fetch(`?resolve&url=${encodeURIComponent(url)}`, {
+                            signal: controller.signal
+                        });
+                        clearTimeout(timeoutId);
+                        
+                        if (!response.ok) {
+                            throw new Error(`Server response: ${response.status}`);
+                        }
+                        
                         const result = await response.json();
                         
                         if (result.success) {
                             UI.showToast('Terabox link resolved successfully!', 'success');
                             return result.url;
                         } else {
-                            // Show more detailed error information
-                            let errorMsg = result.message || 'Failed to resolve Terabox link';
+                            // Log detailed error information
+                            console.warn('Terabox Resolution Failed:', result);
+                            
                             if (result.errors && result.errors.length > 0) {
-                                console.warn('Terabox Resolution Errors:', result.errors);
-                                
                                 // Check if all errors are network-related (sandbox environment)
                                 const networkErrors = result.errors.filter(error => 
                                     error.includes('Could not resolve host') || 
                                     error.includes('cURL error') ||
-                                    error.includes('HTTP 0')
+                                    error.includes('HTTP 0') ||
+                                    error.includes('Connection timed out')
                                 );
                                 
                                 if (networkErrors.length === result.errors.length) {
-                                    UI.showToast('Network restrictions detected. Trying client-side resolution...', 'info');
+                                    UI.showToast('Network restrictions detected. Trying alternative methods...', 'info');
                                     return await this.resolveTeraboxClientSide(url);
                                 }
-                                
-                                errorMsg += '. Check console for details.';
                             }
-                            throw new Error(errorMsg);
+                            
+                            throw new Error(result.message || 'Failed to resolve Terabox link');
                         }
                     } catch (error) {
-                        if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                            throw new Error('Network error. Please check your connection.');
+                        if (error.name === 'AbortError') {
+                            UI.showToast('Request timed out, trying alternative method...', 'warning');
+                        } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                            UI.showToast('Network error detected, trying fallback...', 'warning');
                         }
                         
-                        // If server-side resolution fails, try client-side
-                        if (error.message.includes('Failed to resolve')) {
-                            UI.showToast('Trying alternative resolution method...', 'info');
-                            try {
-                                return await this.resolveTeraboxClientSide(url);
-                            } catch (clientError) {
-                                throw new Error('All resolution methods failed. ' + clientError.message);
-                            }
+                        // Always try client-side resolution as fallback
+                        try {
+                            return await this.resolveTeraboxClientSide(url);
+                        } catch (clientError) {
+                            // If all else fails, try direct URL as last resort
+                            UI.showToast('All resolution methods failed, trying direct URL...', 'warning');
+                            return await this.tryDirectUrl(url);
                         }
-                        
-                        throw error;
                     }
                 },
 
                 async resolveTeraboxClientSide(url) {
-                    // Client-side fallback using CORS proxies
+                    // Enhanced client-side fallback using multiple CORS proxies and alternative services
                     const proxies = [
                         'https://api.allorigins.win/raw?url=',
                         'https://corsproxy.io/?',
-                        'https://thingproxy.freeboard.io/fetch/'
+                        'https://thingproxy.freeboard.io/fetch/',
+                        'https://cors-anywhere.herokuapp.com/',
+                        'https://api.codetabs.com/v1/proxy?quest='
                     ];
+                    
+                    let lastError;
                     
                     for (const proxy of proxies) {
                         try {
-                            UI.showToast(`Trying proxy resolution...`, 'info');
+                            UI.showToast(`Trying resolution method ${proxies.indexOf(proxy) + 1}/${proxies.length}...`, 'info');
+                            
+                            const controller = new AbortController();
+                            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout per proxy
                             
                             const response = await fetch(proxy + encodeURIComponent(url), {
                                 method: 'GET',
+                                signal: controller.signal,
                                 headers: {
                                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                                 }
                             });
                             
-                            if (!response.ok) continue;
+                            clearTimeout(timeoutId);
+                            
+                            if (!response.ok) {
+                                lastError = `Proxy returned ${response.status}`;
+                                continue;
+                            }
                             
                             const html = await response.text();
                             
@@ -1416,7 +1694,9 @@ if (isset($_GET['download'])) {
                                 /src["']?\s*:\s*["']([^"']+\.mp4[^"']*)/i,
                                 /"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/,
                                 /"downloadUrl":"(https?:\/\/[^"]+)"/,
-                                /"stream_url":"(https?:\/\/[^"]+)"/
+                                /"stream_url":"(https?:\/\/[^"]+)"/,
+                                /href=["']([^"']*\.mp4[^"']*)/i,
+                                /<source[^>]+src=["']([^"']+\.mp4[^"']*)/i
                             ];
 
                             for (const pattern of patterns) {
@@ -1429,7 +1709,9 @@ if (isset($_GET['download'])) {
                                         if (resolvedUrl.includes('.mp4') || 
                                             resolvedUrl.includes('video') || 
                                             resolvedUrl.includes('stream') ||
-                                            resolvedUrl.includes('dlink')) {
+                                            resolvedUrl.includes('dlink') ||
+                                            resolvedUrl.includes('download')) {
+                                            UI.showToast('Alternative resolution successful!', 'success');
                                             return resolvedUrl;
                                         }
                                     } catch (e) {
@@ -1437,13 +1719,48 @@ if (isset($_GET['download'])) {
                                     }
                                 }
                             }
+                            
+                            lastError = 'No valid video URL found in response';
                         } catch (error) {
+                            lastError = error.name === 'AbortError' ? 'Request timeout' : error.message;
                             console.warn(`Client-side proxy ${proxy} failed:`, error);
                             continue;
                         }
                     }
                     
-                    throw new Error('All client-side resolution methods failed. The link may require login or be invalid.');
+                    throw new Error(`All proxies failed. Last error: ${lastError}`);
+                },
+                
+                async tryDirectUrl(url) {
+                    // Last resort: try using the URL directly with CORS headers
+                    try {
+                        UI.showToast('Attempting direct URL access...', 'warning');
+                        
+                        // Sometimes Terabox URLs work directly in certain contexts
+                        const testVideo = document.createElement('video');
+                        testVideo.crossOrigin = 'anonymous';
+                        
+                        return new Promise((resolve, reject) => {
+                            const timeout = setTimeout(() => {
+                                reject(new Error('Direct URL test timed out'));
+                            }, 5000);
+                            
+                            testVideo.addEventListener('loadstart', () => {
+                                clearTimeout(timeout);
+                                UI.showToast('Direct URL access successful!', 'success');
+                                resolve(url);
+                            });
+                            
+                            testVideo.addEventListener('error', () => {
+                                clearTimeout(timeout);
+                                reject(new Error('Direct URL access failed - CORS blocked or invalid URL'));
+                            });
+                            
+                            testVideo.src = url;
+                        });
+                    } catch (error) {
+                        throw new Error('Direct URL access failed: ' + error.message);
+                    }
                 },
 
                 addToHistory(url) {
@@ -1673,6 +1990,65 @@ if (isset($_GET['download'])) {
                     document.getElementById('proxyUrlInput').addEventListener('input', (e) => {
                         localStorage.setItem('proxyUrl', e.target.value);
                     });
+                },
+                
+                handleKeyboardShortcuts(e) {
+                    // Don't handle shortcuts when typing in input fields
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+                    
+                    // Prevent default behavior for our shortcuts
+                    const shortcutKeys = [' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'f', 'F', 'm', 'M', 't', 'T'];
+                    if (shortcutKeys.includes(e.key)) {
+                        e.preventDefault();
+                    }
+                    
+                    switch (e.key) {
+                        case ' ': // Spacebar - play/pause
+                            this.togglePlayPause();
+                            break;
+                        case 'ArrowLeft': // Left arrow - rewind 10s
+                            this.seekVideo(-10);
+                            break;
+                        case 'ArrowRight': // Right arrow - forward 10s
+                            this.seekVideo(10);
+                            break;
+                        case 'ArrowUp': // Up arrow - volume up
+                            this.adjustVolume(0.1);
+                            break;
+                        case 'ArrowDown': // Down arrow - volume down
+                            this.adjustVolume(-0.1);
+                            break;
+                        case 'f':
+                        case 'F': // F - fullscreen
+                            this.toggleFullscreen();
+                            break;
+                        case 'm':
+                        case 'M': // M - mute/unmute
+                            this.toggleMute();
+                            break;
+                        case 't':
+                        case 'T': // T - theater mode
+                            this.toggleTheaterMode();
+                            break;
+                        case 'Escape': // Escape - exit fullscreen or theater
+                            if (document.fullscreenElement) {
+                                document.exitFullscreen();
+                            } else if (document.body.classList.contains('theater-mode')) {
+                                this.toggleTheaterMode();
+                            }
+                            break;
+                    }
+                },
+                
+                adjustVolume(delta) {
+                    const newVolume = Math.max(0, Math.min(1, this.video.volume + delta));
+                    this.video.volume = newVolume;
+                    this.volumeSlider.value = newVolume;
+                    this.updateVolumeIcon();
+                    
+                    // Show volume feedback
+                    const percentage = Math.round(newVolume * 100);
+                    UI.showActionIcon('fa-volume-high', `${percentage}%`);
                 }
             };
 
