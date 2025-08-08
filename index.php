@@ -6,7 +6,11 @@
  * to direct video URLs without requiring user login.
  */
 
-// Terabox link resolver with enhanced multiple proxy options and direct API calls
+// Simple in-memory cache for resolved links
+$linkCache = [];
+$cacheTimeout = 1800; // 30 minutes
+
+// Check cache before resolution
 if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false)) {
     header('Content-Type: application/json');
     header('Access-Control-Allow-Origin: *');
@@ -24,6 +28,19 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
     if (!$url || !str_contains($url, 'terabox.com')) {
         echo json_encode(['success' => false, 'message' => 'Invalid Terabox URL']);
         exit;
+    }
+
+    // Check cache first
+    $cacheKey = md5($url);
+    $cacheFile = sys_get_temp_dir() . '/terabox_cache_' . $cacheKey;
+    
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTimeout) {
+        $cachedResult = json_decode(file_get_contents($cacheFile), true);
+        if ($cachedResult && $cachedResult['success']) {
+            $cachedResult['cached'] = true;
+            echo json_encode($cachedResult);
+            exit;
+        }
     }
 
     /**
@@ -45,6 +62,8 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
     try {
         $result = resolveTeraboxDirect($url);
         if ($result['success']) {
+            // Cache successful result
+            file_put_contents($cacheFile, json_encode($result));
             echo json_encode($result);
             exit;
         }
@@ -117,7 +136,10 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
                          strpos($resolvedUrl, 'stream') !== false ||
                          strpos($resolvedUrl, 'dlink') !== false ||
                          preg_match('/\.(mp4|webm|avi|mov|mkv)(\?|$)/i', $resolvedUrl))) {
-                        echo json_encode(['success' => true, 'url' => $resolvedUrl]);
+                        $successResult = ['success' => true, 'url' => $resolvedUrl];
+                        // Cache successful result
+                        file_put_contents($cacheFile, json_encode($successResult));
+                        echo json_encode($successResult);
                         exit;
                     }
                 }
@@ -836,20 +858,20 @@ if (isset($_GET['download'])) {
         }
         
         html.dark {
-            --bg-color: #0f0f23; 
-            --text-color: #e9ecef; 
-            --text-muted-color: #adb5bd;
-            --container-bg-color: rgba(28, 28, 28, 0.95); 
-            --input-bg-color: rgba(44, 44, 44, 0.8); 
-            --input-border-color: #495057;
-            --glow-color: rgba(255, 60, 172, 0.3); 
+            --bg-color: #0a0a1a; 
+            --text-color: #f1f5f9; 
+            --text-muted-color: #cbd5e1;
+            --container-bg-color: rgba(15, 23, 42, 0.95); 
+            --input-bg-color: rgba(30, 41, 59, 0.8); 
+            --input-border-color: #475569;
+            --glow-color: rgba(255, 60, 172, 0.4); 
             --accent-color: #FF3CAC; 
-            --hero-bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-            --hero-card-bg: rgba(255, 255, 255, 0.1);
+            --hero-bg: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+            --hero-card-bg: rgba(255, 255, 255, 0.05);
             --primary-gradient: linear-gradient(135deg, #FF3CAC 0%, #784BA0 50%, #2B86C5 100%);
             --secondary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-            --glassmorphism-bg: rgba(255, 255, 255, 0.1);
-            --glassmorphism-border: rgba(255, 255, 255, 0.2);
+            --glassmorphism-bg: rgba(15, 23, 42, 0.3);
+            --glassmorphism-border: rgba(255, 255, 255, 0.1);
         }
         
         /* Smooth transitions for all elements */
@@ -882,26 +904,95 @@ if (isset($_GET['download'])) {
             overflow: hidden;
         }
         
-        /* Input with enhanced glassmorphism and glow */
+        /* Enhanced input with glassmorphism and animation states */
         .input-glow { 
             background: var(--glassmorphism-bg);
-            backdrop-filter: blur(15px) saturate(150%);
-            -webkit-backdrop-filter: blur(15px) saturate(150%);
+            backdrop-filter: blur(20px) saturate(150%);
+            -webkit-backdrop-filter: blur(20px) saturate(150%);
             border: 2px solid var(--glassmorphism-border);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .input-glow::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.6s ease;
+            z-index: 0;
+        }
+        
+        .input-glow:focus-within::before {
+            left: 100%;
         }
         
         .input-glow:focus-within { 
-            box-shadow: 0 0 30px var(--glow-color), 0 0 60px rgba(255, 60, 172, 0.3);
+            box-shadow: 
+                0 0 30px rgba(255, 60, 172, 0.2), 
+                0 0 60px rgba(255, 60, 172, 0.1),
+                0 0 0 1px rgba(255, 60, 172, 0.3);
             border-color: var(--accent-color);
+            transform: translateY(-2px);
+            backdrop-filter: blur(25px) saturate(180%);
+            -webkit-backdrop-filter: blur(25px) saturate(180%);
+        }
+        
+        .input-glow.error {
+            border-color: #ef4444;
+            box-shadow: 
+                0 0 20px rgba(239, 68, 68, 0.2),
+                0 0 40px rgba(239, 68, 68, 0.1);
+        }
+        
+        .input-glow.success {
+            border-color: #10b981;
+            box-shadow: 
+                0 0 20px rgba(16, 185, 129, 0.2),
+                0 0 40px rgba(16, 185, 129, 0.1);
+        }
+        
+        /* Enhanced animated placeholder */
+        #videoUrl {
+            position: relative;
+            z-index: 1;
+        }
+        
+        #videoUrl::placeholder {
+            transition: all 0.3s ease;
+            opacity: 0.7;
+        }
+        
+        #videoUrl:focus::placeholder {
+            opacity: 0.4;
             transform: translateY(-2px);
         }
         
-        /* Hero section with dynamic gradient */
+        /* Enhanced hero section with animated background */
         .hero-section { 
             background: var(--hero-bg);
             position: relative;
             overflow: hidden;
+            animation: gradientShift 8s ease-in-out infinite;
+        }
+        
+        @keyframes gradientShift {
+            0%, 100% {
+                background: linear-gradient(135deg, #FF9A8B 0%, #FFD66B 50%, #FF99AC 100%);
+            }
+            25% {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            }
+            50% {
+                background: linear-gradient(135deg, #f093fb 0%, #f5576c 50%, #4facfe 100%);
+            }
+            75% {
+                background: linear-gradient(135deg, #43e97b 0%, #38f9d7 50%, #667eea 100%);
+            }
         }
         
         .hero-section::before {
@@ -912,8 +1003,41 @@ if (isset($_GET['download'])) {
             right: 0;
             bottom: 0;
             background: var(--secondary-gradient);
-            opacity: 0.1;
+            opacity: 0.15;
             z-index: 0;
+            animation: gradientPulse 6s ease-in-out infinite alternate;
+        }
+        
+        @keyframes gradientPulse {
+            0% {
+                opacity: 0.15;
+                transform: scale(1);
+            }
+            100% {
+                opacity: 0.25;
+                transform: scale(1.02);
+            }
+        }
+        
+        .hero-section::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 50%);
+            animation: rotate 20s linear infinite;
+            z-index: 0;
+        }
+        
+        @keyframes rotate {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
         }
         
         .hero-section > * {
@@ -921,15 +1045,15 @@ if (isset($_GET['download'])) {
             z-index: 1;
         }
         
-        /* Enhanced slider card with glassmorphism */
+        /* Enhanced slider card with advanced glassmorphism and animations */
         .slider-card-bg { 
             background: var(--glassmorphism-bg);
-            backdrop-filter: blur(15px) saturate(150%);
-            -webkit-backdrop-filter: blur(15px) saturate(150%);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
             border: 1px solid var(--glassmorphism-border);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
             height: 100%;
-            min-height: 120px;
+            min-height: 130px;
             position: relative;
             overflow: hidden;
         }
@@ -943,18 +1067,50 @@ if (isset($_GET['download'])) {
             bottom: 0;
             background: var(--primary-gradient);
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: all 0.4s ease;
+            z-index: 0;
+        }
+        
+        .slider-card-bg::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(
+                from 0deg,
+                transparent 0deg,
+                rgba(255, 60, 172, 0.1) 60deg,
+                rgba(120, 75, 160, 0.1) 120deg,
+                rgba(43, 134, 197, 0.1) 180deg,
+                transparent 240deg,
+                transparent 360deg
+            );
+            opacity: 0;
+            transform: rotate(0deg);
+            transition: all 0.6s ease;
             z-index: 0;
         }
         
         .slider-card-bg:hover::before {
-            opacity: 0.1;
+            opacity: 0.08;
+        }
+        
+        .slider-card-bg:hover::after {
+            opacity: 1;
+            transform: rotate(180deg);
         }
         
         .slider-card-bg:hover {
-            transform: translateY(-8px) scale(1.02);
-            box-shadow: 0 20px 40px rgba(255, 60, 172, 0.2), 0 0 30px var(--glow-color);
-            border-color: var(--accent-color);
+            transform: translateY(-10px) scale(1.03);
+            box-shadow: 
+                0 25px 50px rgba(255, 60, 172, 0.15), 
+                0 10px 30px rgba(120, 75, 160, 0.1),
+                0 0 0 1px rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 60, 172, 0.3);
+            backdrop-filter: blur(25px) saturate(200%);
+            -webkit-backdrop-filter: blur(25px) saturate(200%);
         }
         
         .slider-card-bg > * {
@@ -962,15 +1118,32 @@ if (isset($_GET['download'])) {
             z-index: 1;
         }
         
-        /* Info box with glassmorphism */
+        /* Enhanced feature icon with subtle animations */
+        .feature-icon {
+            font-size: 2.2rem;
+            color: var(--accent-color);
+            margin-right: 1rem;
+            min-width: 3.5rem;
+            text-align: center;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            text-shadow: 0 0 20px rgba(255, 60, 172, 0.3);
+        }
+        
+        .slider-card-bg:hover .feature-icon {
+            transform: scale(1.1) rotateY(10deg);
+            text-shadow: 0 0 30px rgba(255, 60, 172, 0.5);
+        }
+        
+        /* Enhanced info box with better visual hierarchy */
         .info-box { 
             background: var(--glassmorphism-bg);
-            backdrop-filter: blur(15px) saturate(150%);
-            -webkit-backdrop-filter: blur(15px) saturate(150%);
-            border: 1px solid rgba(0, 123, 255, 0.3);
+            backdrop-filter: blur(20px) saturate(150%);
+            -webkit-backdrop-filter: blur(20px) saturate(150%);
+            border: 1px solid rgba(59, 130, 246, 0.3);
             color: var(--text-color);
             position: relative;
             overflow: hidden;
+            transition: all 0.3s ease;
         }
         
         .info-box::before {
@@ -980,8 +1153,14 @@ if (isset($_GET['download'])) {
             left: 0;
             right: 0;
             bottom: 0;
-            background: linear-gradient(45deg, rgba(0, 123, 255, 0.1), rgba(255, 60, 172, 0.1));
+            background: linear-gradient(45deg, rgba(59, 130, 246, 0.05), rgba(255, 60, 172, 0.05));
             z-index: 0;
+        }
+        
+        .info-box:hover {
+            border-color: rgba(59, 130, 246, 0.5);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.1);
+            transform: translateY(-2px);
         }
         
         .info-box > * {
@@ -989,13 +1168,26 @@ if (isset($_GET['download'])) {
             z-index: 1;
         }
         
-        /* Enhanced gradient button styling */
+        /* Enhanced info box icons */
+        .info-box .fas {
+            color: #3b82f6;
+            filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.3));
+            transition: all 0.3s ease;
+        }
+        
+        .info-box:hover .fas {
+            transform: scale(1.1);
+            filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.5));
+        }
+        
+        /* Enhanced gradient button styling with Gen-Alpha effects */
         #loadVideoBtn { 
             background: var(--primary-gradient);
             border: none;
             position: relative;
             overflow: hidden;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px rgba(255, 60, 172, 0.2);
         } 
         
         #loadVideoBtn::before {
@@ -1005,21 +1197,39 @@ if (isset($_GET['download'])) {
             left: -100%;
             width: 100%;
             height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
             transition: left 0.6s ease;
+        }
+        
+        #loadVideoBtn::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+            transform: translate(-50%, -50%);
+            transition: all 0.4s ease;
+            border-radius: 50%;
         }
         
         #loadVideoBtn:hover::before {
             left: 100%;
         }
         
+        #loadVideoBtn:hover::after {
+            width: 100px;
+            height: 100px;
+        }
+        
         #loadVideoBtn:hover { 
-            transform: translateY(-2px) scale(1.05);
-            box-shadow: 0 10px 25px rgba(255, 60, 172, 0.4);
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 15px 35px rgba(255, 60, 172, 0.4), 0 5px 15px rgba(120, 75, 160, 0.3);
         }
         
         #loadVideoBtn:active {
-            transform: translateY(0) scale(1);
+            transform: translateY(-1px) scale(1.02);
         }
         
         /* Enhanced video control buttons with YouTube-style design */
@@ -1284,12 +1494,105 @@ if (isset($_GET['download'])) {
             border-color: var(--accent-color);
         }
         
-        .feature-icon {
-            font-size: 2rem;
-            color: var(--accent-color);
-            margin-right: 1rem;
-            min-width: 3rem;
-            text-align: center;
+        /* Skeleton loader for enhanced loading states */
+        .skeleton {
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            background-size: 200px 100%;
+            animation: skeletonLoading 1.5s infinite;
+        }
+        
+        @keyframes skeletonLoading {
+            0% {
+                background-position: -200px 0;
+            }
+            100% {
+                background-position: calc(200px + 100%) 0;
+            }
+        }
+        
+        .skeleton-card {
+            height: 130px;
+            border-radius: 0.75rem;
+            background: var(--glassmorphism-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glassmorphism-border);
+        }
+        
+        /* Enhanced loading button state */
+        #loadVideoBtn.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+        
+        #loadVideoBtn.loading::before {
+            left: 100%;
+            animation: buttonLoading 1s ease-in-out infinite;
+        }
+        
+        @keyframes buttonLoading {
+            0%, 100% {
+                left: -100%;
+            }
+            50% {
+                left: 100%;
+            }
+        }
+        
+        /* Shake animation for input validation */
+        @keyframes shake {
+            0%, 100% {
+                transform: translateX(0) translateY(-2px);
+            }
+            10%, 30%, 50%, 70%, 90% {
+                transform: translateX(-5px) translateY(-2px);
+            }
+            20%, 40%, 60%, 80% {
+                transform: translateX(5px) translateY(-2px);
+            }
+        }
+        .theme-toggle-btn {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(255, 60, 172, 0.2);
+        }
+        
+        .theme-toggle-btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: radial-gradient(circle, rgba(255, 60, 172, 0.3) 0%, transparent 70%);
+            transform: translate(-50%, -50%);
+            transition: all 0.4s ease;
+            border-radius: 50%;
+        }
+        
+        .theme-toggle-btn:hover::before {
+            width: 60px;
+            height: 60px;
+        }
+        
+        .theme-toggle-btn:hover {
+            transform: scale(1.1) rotate(10deg);
+            box-shadow: 0 8px 25px rgba(255, 60, 172, 0.3);
+        }
+        
+        .theme-toggle-btn:active {
+            transform: scale(0.95) rotate(-5deg);
+        }
+        
+        .theme-icon {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 1;
+        }
+        
+        .theme-toggle-btn:hover .theme-icon {
+            transform: scale(1.1);
+            text-shadow: 0 0 15px rgba(255, 60, 172, 0.5);
         }
         
         /* Center action icon */
@@ -1479,65 +1782,90 @@ if (isset($_GET['download'])) {
             height: 100px; 
         }
         
-        /* Responsive design for mobile - enhanced */
+        /* Enhanced mobile responsiveness and Gen-Alpha optimizations */
         @media (max-width: 640px) {
             #app-wrapper {
-                padding: 0.5rem;
+                padding: 1rem;
             }
             
             .control-button { 
-                width: 36px; 
-                height: 36px; 
-                font-size: 0.9rem; 
+                width: 42px; 
+                height: 42px; 
+                font-size: 1rem;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
+            }
+            
+            .control-button-enhanced {
+                width: 50px;
+                height: 50px;
+                backdrop-filter: blur(15px);
+                -webkit-backdrop-filter: blur(15px);
             }
             
             .video-controls .text-sm { 
-                font-size: 0.75rem; 
+                font-size: 0.8rem; 
             }
             
             .slider-card { 
-                padding: 0.5rem; 
+                padding: 0.75rem; 
             }
             
             .slider-card-bg { 
-                padding: 1rem; 
-                min-height: 100px;
+                padding: 1.25rem; 
+                min-height: 120px;
+                backdrop-filter: blur(15px) saturate(150%);
+                -webkit-backdrop-filter: blur(15px) saturate(150%);
             }
             
             .feature-icon {
-                font-size: 1.5rem;
-                min-width: 2.5rem;
+                font-size: 1.8rem;
+                min-width: 3rem;
             }
             
-            /* Improved mobile search bar */
+            /* Enhanced mobile search bar */
             #videoUrl {
                 font-size: 16px; /* Prevents zoom on iOS */
-                padding-left: 2.5rem;
-                padding-right: 2.5rem;
+                padding-left: 3rem;
+                padding-right: 3rem;
+                min-height: 3.5rem;
             }
             
             #loadVideoBtn {
-                padding: 0.5rem;
+                padding: 1rem;
+                min-width: 4rem;
             }
             
             /* Better mobile video controls */
             .video-controls {
-                padding: 0.5rem;
+                padding: 1rem;
+                backdrop-filter: blur(20px) saturate(180%);
+                -webkit-backdrop-filter: blur(20px) saturate(180%);
             }
             
             .video-controls .flex {
                 flex-wrap: wrap;
-                gap: 0.5rem;
+                gap: 0.75rem;
+            }
+            
+            /* Enhanced mobile theme toggle */
+            .theme-toggle-btn {
+                width: 3rem;
+                height: 3rem;
+                backdrop-filter: blur(20px) saturate(150%);
+                -webkit-backdrop-filter: blur(20px) saturate(150%);
             }
             
             /* Mobile-friendly settings menu */
             #settings-menu {
                 width: calc(100vw - 2rem);
-                max-width: 20rem;
+                max-width: 22rem;
                 right: auto;
                 left: 50%;
                 transform: translateX(-50%);
-                bottom: 4rem;
+                bottom: 5rem;
+                backdrop-filter: blur(25px) saturate(180%);
+                -webkit-backdrop-filter: blur(25px) saturate(180%);
             }
             
             /* Better mobile toast positioning */
@@ -1550,6 +1878,21 @@ if (isset($_GET['download'])) {
             .toast {
                 min-width: auto;
                 max-width: none;
+                backdrop-filter: blur(15px) saturate(150%);
+                -webkit-backdrop-filter: blur(15px) saturate(150%);
+            }
+            
+            /* Enhanced mobile hero section */
+            .hero-section {
+                padding: 1.5rem;
+                margin: 0 -1rem;
+                border-radius: 1.5rem;
+            }
+            
+            /* Mobile input glow enhancement */
+            .input-glow {
+                backdrop-filter: blur(25px) saturate(180%);
+                -webkit-backdrop-filter: blur(25px) saturate(180%);
             }
         }
         
@@ -1597,7 +1940,9 @@ if (isset($_GET['download'])) {
             }
         }
         
-        /* Improve contrast and accessibility */
+        /* Performance optimizations and accessibility enhancements */
+        
+        /* Reduce motion for accessibility */
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after {
                 animation-duration: 0.01ms !important;
@@ -1606,7 +1951,16 @@ if (isset($_GET['download'])) {
             }
             
             .slider-track {
-                transition: none;
+                transition: none !important;
+            }
+            
+            .hero-section {
+                animation: none !important;
+            }
+            
+            .hero-section::before,
+            .hero-section::after {
+                animation: none !important;
             }
         }
         
@@ -1614,10 +1968,54 @@ if (isset($_GET['download'])) {
         @media (prefers-contrast: high) {
             .slider-card-bg {
                 border-width: 2px;
+                border-color: currentColor;
             }
             
-            .control-button {
-                border: 1px solid currentColor;
+            .control-button,
+            .control-button-enhanced {
+                border: 2px solid currentColor;
+            }
+            
+            .input-glow {
+                border-width: 3px;
+            }
+            
+            .theme-toggle-btn {
+                border: 2px solid currentColor;
+            }
+        }
+        
+        /* Focus improvements for accessibility */
+        .slider-card-bg:focus-within,
+        .control-button:focus,
+        .control-button-enhanced:focus,
+        .theme-toggle-btn:focus {
+            outline: 3px solid var(--accent-color);
+            outline-offset: 2px;
+        }
+        
+        /* GPU acceleration for smooth animations */
+        .slider-card-bg,
+        .input-glow,
+        .theme-toggle-btn,
+        #loadVideoBtn,
+        .hero-section::before,
+        .hero-section::after {
+            will-change: transform, opacity;
+            transform: translateZ(0);
+        }
+        
+        /* Optimized loading states */
+        .loading-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
             }
         }
         
@@ -1679,8 +2077,8 @@ if (isset($_GET['download'])) {
         <div class="text-center relative">
             <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent" style="background-image: var(--primary-gradient);">Vibe Player</h1>
             <p class="mt-2" style="color: var(--text-muted-color);">The Ultimate Hub for Seamless Streaming.</p>
-            <button id="theme-toggle" class="absolute top-0 right-0 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)] glassmorphism" aria-label="Toggle theme">
-                <i class="fas fa-sun text-xl"></i>
+            <button id="theme-toggle" class="absolute top-0 right-0 p-3 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)] glassmorphism theme-toggle-btn" aria-label="Toggle theme">
+                <i class="fas fa-sun text-xl theme-icon"></i>
             </button>
         </div>
         
@@ -1892,10 +2290,11 @@ if (isset($_GET['download'])) {
                 }
             };
 
-            // Theme management module
+            // Theme management module with enhanced animations
             const Theme = {
                 init() {
                     this.themeToggle = document.getElementById('theme-toggle');
+                    this.themeIcon = this.themeToggle.querySelector('.theme-icon');
                     this.themeToggle.addEventListener('click', () => this.toggle());
                     this.apply(localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
                 },
@@ -1903,7 +2302,16 @@ if (isset($_GET['download'])) {
                 apply(theme) {
                     const isDark = theme === 'dark';
                     document.documentElement.classList.toggle('dark', isDark);
-                    this.themeToggle.querySelector('i').className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-xl`;
+                    
+                    // Enhanced icon animation
+                    this.themeIcon.style.transform = 'scale(0.8) rotate(180deg)';
+                    this.themeIcon.style.opacity = '0';
+                    
+                    setTimeout(() => {
+                        this.themeIcon.className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-xl theme-icon`;
+                        this.themeIcon.style.transform = 'scale(1) rotate(0deg)';
+                        this.themeIcon.style.opacity = '1';
+                    }, 200);
                 },
                 
                 toggle() {
@@ -1913,7 +2321,7 @@ if (isset($_GET['download'])) {
                 }
             };
 
-            // Hero slider module
+            // Enhanced Hero slider module with performance optimizations
             const HeroSlider = {
                 init() {
                     this.sliderTrack = document.querySelector('.slider-track');
@@ -1923,25 +2331,43 @@ if (isset($_GET['download'])) {
                     }
                     
                     this.features = [
-                        { icon: 'fa-server', title: 'Resolver Built-in', desc: 'Automatically resolves Terabox links.' },
-                        { icon: 'fa-keyboard', title: 'Shortcuts', desc: 'Control playback with your keyboard.' },
-                        { icon: 'fa-palette', title: 'Themes', desc: 'Switch between light and dark modes instantly.' },
-                        { icon: 'fa-download', title: 'Download', desc: 'Save videos with progress tracking.' },
-                        { icon: 'fa-expand-arrows-alt', title: 'Modes', desc: 'Enjoy theater, PiP, and fullscreen views.' },
-                        { icon: 'fa-cog', title: 'Settings', desc: 'Loop your favorite videos.' }
+                        { icon: 'fa-server', title: 'Resolver Built-in', desc: 'Automatically resolves Terabox links with multiple fallback methods.' },
+                        { icon: 'fa-keyboard', title: 'Shortcuts', desc: 'Complete keyboard control for seamless navigation and playback.' },
+                        { icon: 'fa-palette', title: 'Themes', desc: 'Beautiful light and dark modes with smooth transitions.' },
+                        { icon: 'fa-download', title: 'Download', desc: 'Save videos locally with real-time progress tracking.' },
+                        { icon: 'fa-expand-arrows-alt', title: 'Modes', desc: 'Theater, Picture-in-Picture, and fullscreen viewing options.' },
+                        { icon: 'fa-cog', title: 'Settings', desc: 'Customizable playback options and proxy configurations.' }
                     ];
                     
                     this.renderSlider();
                     this.currentIndex = 0;
+                    this.isVisible = true;
                     this.startAutoSlide();
+                    this.setupIntersectionObserver();
+                },
+                
+                setupIntersectionObserver() {
+                    // Pause animation when not visible for performance
+                    const observer = new IntersectionObserver((entries) => {
+                        entries.forEach(entry => {
+                            this.isVisible = entry.isIntersecting;
+                            if (this.isVisible) {
+                                this.startAutoSlide();
+                            } else {
+                                clearInterval(this.slideInterval);
+                            }
+                        });
+                    });
+                    
+                    observer.observe(this.sliderTrack.parentElement);
                 },
                 
                 renderSlider() {
-                    // Create cards with improved structure
-                    const createCard = (feature) => `
-                        <div class="slider-card p-4">
-                            <div class="p-6 rounded-xl h-full flex items-center space-x-4 slider-card-bg">
-                                <div class="feature-icon">
+                    // Create cards with improved structure and accessibility
+                    const createCard = (feature, index) => `
+                        <div class="slider-card p-4" role="tabpanel" aria-label="Feature ${index + 1}">
+                            <div class="p-6 rounded-xl h-full flex items-center space-x-4 slider-card-bg" tabindex="0">
+                                <div class="feature-icon" aria-hidden="true">
                                     <i class="fas ${feature.icon}"></i>
                                 </div>
                                 <div class="flex-1">
@@ -1955,36 +2381,55 @@ if (isset($_GET['download'])) {
                     // Duplicate features for seamless infinite scroll
                     this.sliderTrack.innerHTML = [...this.features, ...this.features]
                         .map(createCard).join('');
+                    
+                    // Add ARIA labels
+                    this.sliderTrack.setAttribute('role', 'tablist');
+                    this.sliderTrack.setAttribute('aria-label', 'Feature showcase');
                 },
                 
                 startAutoSlide() {
-                    this.slideInterval = setInterval(() => this.slide(), 3000);
+                    clearInterval(this.slideInterval);
                     
-                    // Pause on hover
+                    // Only start if visible and user hasn't disabled motion
+                    if (!this.isVisible || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                        return;
+                    }
+                    
+                    this.slideInterval = setInterval(() => this.slide(), 4000);
+                    
+                    // Pause on hover with improved performance
                     this.sliderTrack.addEventListener('mouseenter', () => {
                         clearInterval(this.slideInterval);
-                    });
+                    }, { passive: true });
                     
                     this.sliderTrack.addEventListener('mouseleave', () => {
-                        this.startAutoSlide();
-                    });
+                        if (this.isVisible) this.startAutoSlide();
+                    }, { passive: true });
                 },
                 
                 slide() {
+                    if (!this.isVisible) return;
+                    
                     this.currentIndex++;
-                    const slideWidth = window.innerWidth >= 768 ? 100/3 : 100; // 33.33% on desktop, 100% on mobile
-                    this.sliderTrack.style.transform = `translateX(-${this.currentIndex * slideWidth}%)`;
+                    const slideWidth = window.innerWidth >= 768 ? 100/3 : 100;
+                    
+                    // Use requestAnimationFrame for smoother animations
+                    requestAnimationFrame(() => {
+                        this.sliderTrack.style.transform = `translateX(-${this.currentIndex * slideWidth}%)`;
+                    });
                     
                     // Reset to beginning when reaching the end of first set
                     if (this.currentIndex >= this.features.length) {
                         setTimeout(() => {
                             this.sliderTrack.style.transition = 'none';
                             this.currentIndex = 0;
-                            this.sliderTrack.style.transform = 'translateX(0)';
-                            setTimeout(() => {
-                                this.sliderTrack.style.transition = 'transform 0.5s ease-in-out';
-                            }, 50);
-                        }, 500);
+                            requestAnimationFrame(() => {
+                                this.sliderTrack.style.transform = 'translateX(0)';
+                                setTimeout(() => {
+                                    this.sliderTrack.style.transition = 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)';
+                                }, 50);
+                            });
+                        }, 600);
                     }
                 }
             };
@@ -2081,22 +2526,38 @@ if (isset($_GET['download'])) {
                 },
                 
                 /**
-                 * Updates the URL input status icon
-                 * @param {string} status - The status (loading, idle, error)
+                 * Updates the URL input status icon with enhanced animations
+                 * @param {string} status - The status (loading, idle, error, success)
                  */
                 setUrlStatus(status) {
                     const iconEl = document.getElementById('url-status-icon');
+                    const inputContainer = iconEl.closest('.input-glow');
                     if (!iconEl) return;
+                    
+                    // Remove existing status classes
+                    inputContainer.classList.remove('error', 'success', 'loading');
                     
                     switch (status) {
                         case 'loading':
                             iconEl.innerHTML = `<i class="fas fa-spinner fa-spin" style="color: var(--accent-color);"></i>`;
+                            inputContainer.classList.add('loading');
                             break;
                         case 'error':
                             iconEl.innerHTML = `<i class="fas fa-exclamation-circle" style="color: #ef4444;"></i>`;
+                            inputContainer.classList.add('error');
+                            // Add shake animation
+                            inputContainer.style.animation = 'shake 0.5s ease-in-out';
+                            setTimeout(() => {
+                                inputContainer.style.animation = '';
+                            }, 500);
+                            break;
+                        case 'success':
+                            iconEl.innerHTML = `<i class="fas fa-check-circle" style="color: #10b981;"></i>`;
+                            inputContainer.classList.add('success');
                             break;
                         default:
                             iconEl.innerHTML = `<i class="fas fa-link" style="color: var(--text-muted-color);"></i>`;
+                            break;
                     }
                 }
             };
@@ -2206,6 +2667,7 @@ if (isset($_GET['download'])) {
                     let url = this.videoUrlInput.value.trim();
                     if (!url) { 
                         UI.showToast('Please paste a video URL.', 'error'); 
+                        UI.setUrlStatus('error');
                         return; 
                     }
                     
@@ -2214,8 +2676,14 @@ if (isset($_GET['download'])) {
                         new URL(url);
                     } catch (e) {
                         UI.showToast('Please enter a valid URL.', 'error');
+                        UI.setUrlStatus('error');
                         return;
                     }
+                    
+                    // Enhanced loading states
+                    const loadBtn = document.getElementById('loadVideoBtn');
+                    loadBtn.classList.add('loading');
+                    loadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
                     
                     this.playerContainer.classList.remove('hidden');
                     UI.setUrlStatus('loading');
@@ -2258,9 +2726,11 @@ if (isset($_GET['download'])) {
                         try {
                             await this.video.play();
                             UI.showToast('Video loaded and playing!', 'success');
+                            UI.setUrlStatus('success');
                         } catch (playError) {
                             if (playError.name !== 'AbortError') {
                                 UI.showToast('Video loaded. Click play to start.', 'info');
+                                UI.setUrlStatus('success');
                             }
                         }
                         
@@ -2285,6 +2755,11 @@ if (isset($_GET['download'])) {
                         
                         UI.showToast(errorMessage, 'error');
                     } finally {
+                        // Reset loading states
+                        const loadBtn = document.getElementById('loadVideoBtn');
+                        loadBtn.classList.remove('loading');
+                        loadBtn.innerHTML = '<i class="fas fa-play"></i>';
+                        
                         if (document.getElementById('url-status-icon').innerHTML.includes('fa-spinner')) {
                             UI.setUrlStatus('idle');
                         }
