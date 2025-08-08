@@ -2,6 +2,36 @@
 
 ## Common Build Issues and Solutions
 
+### Content Digest Not Found Error
+
+**Issue:** Docker build fails with "content digest not found" error during Actor/CI builds.
+
+**Symptoms:**
+- Build completes successfully but fails during image push
+- Error message: `NotFound: content digest sha256:xxxxx: not found`
+- Local builds work fine, but CI/Actor builds fail
+
+**Root Cause:**
+Different environments may use different versions of the base image, causing digest mismatches between build and push phases.
+
+**Solution (Implemented):**
+The Dockerfile now pins the base image to a specific digest:
+```dockerfile
+FROM php:8.2-apache@sha256:3291431664f257c08ea4f1b0884060ada697ae4a45ab13f497861f4c0862aed0
+```
+
+This ensures:
+- Reproducible builds across all environments
+- Consistent base image layers
+- Eliminates digest mismatch errors
+- Better security through immutable base image references
+
+**To Update Base Image:**
+1. Pull the latest image: `docker pull php:8.2-apache`
+2. Get the digest: `docker inspect php:8.2-apache --format='{{index .RepoDigests 0}}'`
+3. Update the Dockerfile with the new digest
+4. Test the build locally before committing
+
 ### bcmath Extension Compilation Issues
 
 The VibePlayer Docker image includes the PHP bcmath extension for mathematical operations. This guide addresses common compilation issues.
