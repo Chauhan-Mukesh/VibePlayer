@@ -13,7 +13,9 @@ LABEL org.opencontainers.image.source="https://github.com/Chauhan-Mukesh/VibePla
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # Install system dependencies and PHP extensions in single layer
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Using parallel compilation and explicit configuration for faster, more reliable builds
+RUN echo "=== Installing system dependencies ===" \
+    && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
@@ -24,11 +26,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g-dev \
     libpng-dev \
     libonig-dev \
-    && docker-php-ext-install \
+    # Additional build dependencies for faster and more reliable compilation
+    build-essential \
+    autoconf \
+    pkg-config \
+    && echo "=== Configuring PHP extensions ===" \
+    && docker-php-ext-configure bcmath --enable-bcmath \
+    && echo "=== Installing PHP extensions with parallel compilation ===" \
+    && docker-php-ext-install -j$(nproc) \
     zip \
     exif \
     bcmath \
-    && rm -rf /var/lib/apt/lists/*
+    && echo "=== Cleaning up package cache ===" \
+    && rm -rf /var/lib/apt/lists/* \
+    && echo "=== PHP extensions installed successfully ==="
 
 # Enable required Apache modules for production
 RUN a2enmod rewrite headers expires deflate
