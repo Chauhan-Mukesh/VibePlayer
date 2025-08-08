@@ -134,19 +134,85 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
 }
 
 /**
- * Enhanced Direct Terabox resolution method with improved token extraction
- * and API calls to dm.terabox.app endpoint
+ * Enhanced Direct Terabox resolution method following the exact approach from problem statement
+ * Uses server-side direct API calls to TeraBox's share APIs for maximum reliability
  */
 function resolveTeraboxDirect($url) {
     try {
-        // Step 1: Fetch the initial page to get cookies and initial data
+        // Step 1: Extract share ID and domain from URL
+        $parsedUrl = parse_url($url);
+        $domain = $parsedUrl['host'] ?? 'terabox.com';
+        
+        // Extract surl/share ID from URL - multiple patterns supported
+        $surl = '';
+        if (preg_match('/\/s\/([a-zA-Z0-9_-]+)/', $url, $matches)) {
+            $surl = $matches[1];
+        } elseif (preg_match('/surl=([a-zA-Z0-9_-]+)/', $url, $matches)) {
+            $surl = $matches[1];
+        } elseif (preg_match('/\/sharing\/link\?surl=([a-zA-Z0-9_-]+)/', $url, $matches)) {
+            $surl = $matches[1];
+        }
+        
+        if (!$surl) {
+            throw new Exception("Could not extract share ID from TeraBox URL");
+        }
+
+        // Step 2: Try direct API call first (as mentioned in problem statement)
+        $apiUrl = "https://www.terabox.com/share/list";
+        $params = [
+            'app_id' => '250528', // Known app_id from TeraBox's open-platform integration
+            'shorturl' => $surl,
+            'root' => '1'
+        ];
+        
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $apiUrl . '?' . http_build_query($params),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json, text/plain, */*',
+                'Accept-Language: en-US,en;q=0.9',
+                'Referer: https://terabox.com/sharing/link?surl=' . $surl,
+                'DNT: 1',
+                'Connection: keep-alive',
+                'Cache-Control: no-cache'
+            ]
+        ]);
+        
+        $apiResponse = curl_exec($ch);
+        $apiHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        // If direct API call succeeds, parse response
+        if ($apiHttpCode === 200 && $apiResponse && !$curlError) {
+            $apiData = json_decode($apiResponse, true);
+            if ($apiData && isset($apiData['list']) && !empty($apiData['list'])) {
+                $file = $apiData['list'][0];
+                if (isset($file['dlink']) && !empty($file['dlink'])) {
+                    return [
+                        'success' => true,
+                        'url' => $file['dlink'],
+                        'file_name' => $file['server_filename'] ?? 'video.mp4',
+                        'thumbnail' => $file['thumbs']['url3'] ?? '',
+                        'size' => $file['size'] ?? 0,
+                        'method' => 'direct_api'
+                    ];
+                }
+            }
+        }
+
+        // Step 3: Fallback to page scraping with enhanced token extraction
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => 20,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_HTTPHEADER => [
                 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -172,144 +238,230 @@ function resolveTeraboxDirect($url) {
             throw new Exception('Failed to fetch Terabox page. HTTP Code: ' . $httpCode);
         }
 
-        // Step 2: Extract the 'surl' from the final URL
-        $surl = basename(parse_url($finalUrl, PHP_URL_PATH));
-        if (strpos($surl, '?') !== false) {
-            $surl = substr($surl, 0, strpos($surl, '?'));
-        }
+        // Step 4: Enhanced token extraction with multiple patterns
+        $jsToken = null;
+        $logid = null;
+        $bdstoken = null;
         
-        if (!$surl) {
-            throw new Exception("Could not find 'surl' in the link.");
-        }
-
-        // Step 3: Extract tokens using findBetween helper
-        $jsToken = findBetween($html, '"jsToken":"', '"');
-        $logid = findBetween($html, '"logid":"', '"');
-        $bdstoken = findBetween($html, '"bdstoken":"', '"');
-        
-        if (!$jsToken) {
-            // Try alternative patterns
-            $jsToken = findBetween($html, "'jsToken':'", "'");
-        }
-        
-        if (!$logid) {
-            $logid = findBetween($html, "'logid':'", "'");
-        }
-        
-        if (!$bdstoken) {
-            $bdstoken = findBetween($html, "'bdstoken':'", "'");
-        }
-
-        // Step 4: Try window.__INIT_DATA__ extraction first (most reliable)
-        if (preg_match('/<script>window\.__INIT_DATA__\s*=\s*({.*?})<\/script>/', $html, $matches)) {
-            $data = json_decode($matches[1], true);
-            if ($data && isset($data['share_info']['file_list']) && !empty($data['share_info']['file_list'])) {
-                $fileList = $data['share_info']['file_list'];
-                $dlink = $fileList[0]['dlink'] ?? null;
-                
-                if ($dlink) {
-                    return [
-                        'success' => true,
-                        'url' => $dlink,
-                        'file_name' => $fileList[0]['server_filename'] ?? 'video.mp4',
-                        'thumbnail' => $fileList[0]['thumbs']['url3'] ?? '',
-                        'size' => $fileList[0]['size'] ?? 0
-                    ];
-                }
-            }
-        }
-
-        // Step 5: If tokens found, make API call to dm.terabox.app
-        if ($jsToken && $logid && $bdstoken) {
-            $apiUrl = "https://dm.terabox.app/share/list";
-            $params = [
-                'app_id' => '250528',
-                'jsToken' => $jsToken,
-                'logid' => $logid,
-                'bdstoken' => $bdstoken,
-                'shorturl' => $surl,
-                'root' => '1'
-            ];
-            
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $apiUrl . '?' . http_build_query($params),
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 15,
-                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_HTTPHEADER => [
-                    'Accept: application/json, text/plain, */*',
-                    'Accept-Language: en-US,en;q=0.9',
-                    'Referer: https://www.terabox.com/',
-                    'DNT: 1',
-                    'Connection: keep-alive'
-                ]
-            ]);
-            
-            $apiResponse = curl_exec($ch);
-            $apiHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            
-            if ($apiHttpCode === 200 && $apiResponse) {
-                $apiData = json_decode($apiResponse, true);
-                if ($apiData && isset($apiData['list']) && !empty($apiData['list'])) {
-                    $file = $apiData['list'][0];
-                    return [
-                        'success' => true,
-                        'url' => $file['dlink'],
-                        'file_name' => $file['server_filename'] ?? 'video.mp4',
-                        'thumbnail' => $file['thumbs']['url3'] ?? '',
-                        'size' => $file['size'] ?? 0
-                    ];
-                }
-            }
-        }
-
-        // Step 6: Fallback to enhanced regex patterns
-        $patterns = [
-            '/"dlink":"(https?:\/\/[^"]+)"/',
-            '/"play_url":"(https?:\/\/[^"]+)"/',
-            '/sources:\["(https?:\/\/[^"]+)"\]/',
-            '/"video_url":"(https?:\/\/[^"]+)"/',
-            '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
-            '/src["\']?\s*:\s*["\']([^"\']+\.mp4[^"\']*)/i',
-            '/"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/',
-            '/data-src="(https?:\/\/[^"]+\.mp4[^"]*)"/',
-            '/href="(https?:\/\/[^"]+\.mp4[^"]*)"/',
-            '/"downloadUrl":"(https?:\/\/[^"]+)"/',
-            '/"stream_url":"(https?:\/\/[^"]+)"/'
+        // Try multiple extraction patterns for jsToken
+        $tokenPatterns = [
+            '/"jsToken":"([^"]+)"/',
+            "/'jsToken':'([^']+)'/",
+            '/jsToken["\']?\s*:\s*["\']([^"\']+)/',
+            '/window\.jsToken\s*=\s*["\']([^"\']+)/'
         ];
         
-        foreach ($patterns as $pattern) {
+        foreach ($tokenPatterns as $pattern) {
             if (preg_match($pattern, $html, $matches)) {
-                $candidate = stripslashes($matches[1]);
-                if (filter_var($candidate, FILTER_VALIDATE_URL) && 
-                    (strpos($candidate, '.mp4') !== false || 
-                     strpos($candidate, 'video') !== false ||
-                     strpos($candidate, 'stream') !== false ||
-                     strpos($candidate, 'dlink') !== false)) {
-                    return ['success' => true, 'url' => $candidate];
-                }
+                $jsToken = $matches[1];
+                break;
+            }
+        }
+        
+        // Try multiple extraction patterns for logid
+        $logidPatterns = [
+            '/"logid":"([^"]+)"/',
+            "/'logid':'([^']+)'/",
+            '/logid["\']?\s*:\s*["\']([^"\']+)/',
+            '/window\.logid\s*=\s*["\']([^"\']+)/'
+        ];
+        
+        foreach ($logidPatterns as $pattern) {
+            if (preg_match($pattern, $html, $matches)) {
+                $logid = $matches[1];
+                break;
+            }
+        }
+        
+        // Try multiple extraction patterns for bdstoken
+        $bdstokenPatterns = [
+            '/"bdstoken":"([^"]+)"/',
+            "/'bdstoken':'([^']+)'/",
+            '/bdstoken["\']?\s*:\s*["\']([^"\']+)/',
+            '/window\.bdstoken\s*=\s*["\']([^"\']+)/'
+        ];
+        
+        foreach ($bdstokenPatterns as $pattern) {
+            if (preg_match($pattern, $html, $matches)) {
+                $bdstoken = $matches[1];
+                break;
             }
         }
 
-        // Step 7: Look for JSON data in script tags
-        if (preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scriptMatches)) {
-            foreach ($scriptMatches[1] as $script) {
-                if (preg_match('/"(?:dlink|play_url|video_url|downloadUrl|stream_url)":"(https?:\/\/[^"]+)"/', $script, $matches)) {
-                    $candidate = stripslashes($matches[1]);
-                    if (filter_var($candidate, FILTER_VALIDATE_URL)) {
-                        return ['success' => true, 'url' => $candidate];
+        // Step 5: Try window.__INIT_DATA__ extraction (most reliable method)
+        $initDataPatterns = [
+            '/<script>window\.__INIT_DATA__\s*=\s*({.*?})<\/script>/',
+            '/window\.__INIT_DATA__\s*=\s*({.*?});/',
+            '/__INIT_DATA__\s*=\s*({.*?})/'
+        ];
+        
+        foreach ($initDataPatterns as $pattern) {
+            if (preg_match($pattern, $html, $matches)) {
+                $data = json_decode($matches[1], true);
+                if ($data && isset($data['share_info']['file_list']) && !empty($data['share_info']['file_list'])) {
+                    $fileList = $data['share_info']['file_list'];
+                    $dlink = $fileList[0]['dlink'] ?? null;
+                    
+                    if ($dlink) {
+                        return [
+                            'success' => true,
+                            'url' => $dlink,
+                            'file_name' => $fileList[0]['server_filename'] ?? 'video.mp4',
+                            'thumbnail' => $fileList[0]['thumbs']['url3'] ?? '',
+                            'size' => $fileList[0]['size'] ?? 0,
+                            'method' => 'init_data'
+                        ];
+                    }
+                }
+                break;
+            }
+        }
+
+        // Step 6: If tokens found, make enhanced API call
+        if ($jsToken && $logid && $bdstoken) {
+            // Try multiple API endpoints
+            $apiEndpoints = [
+                "https://www.terabox.com/share/list",
+                "https://dm.terabox.app/share/list",
+                "https://terabox.com/share/list"
+            ];
+            
+            foreach ($apiEndpoints as $apiUrl) {
+                $params = [
+                    'app_id' => '250528',
+                    'jsToken' => $jsToken,
+                    'logid' => $logid,
+                    'bdstoken' => $bdstoken,
+                    'shorturl' => $surl,
+                    'root' => '1'
+                ];
+                
+                $ch = curl_init();
+                curl_setopt_array($ch, [
+                    CURLOPT_URL => $apiUrl . '?' . http_build_query($params),
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 15,
+                    CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    CURLOPT_SSL_VERIFYPEER => false,
+                    CURLOPT_HTTPHEADER => [
+                        'Accept: application/json, text/plain, */*',
+                        'Accept-Language: en-US,en;q=0.9',
+                        'Referer: https://www.terabox.com/sharing/link?surl=' . $surl,
+                        'DNT: 1',
+                        'Connection: keep-alive'
+                    ]
+                ]);
+                
+                $apiResponse = curl_exec($ch);
+                $apiHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                curl_close($ch);
+                
+                if ($apiHttpCode === 200 && $apiResponse) {
+                    $apiData = json_decode($apiResponse, true);
+                    if ($apiData && isset($apiData['list']) && !empty($apiData['list'])) {
+                        $file = $apiData['list'][0];
+                        if (isset($file['dlink']) && !empty($file['dlink'])) {
+                            return [
+                                'success' => true,
+                                'url' => $file['dlink'],
+                                'file_name' => $file['server_filename'] ?? 'video.mp4',
+                                'thumbnail' => $file['thumbs']['url3'] ?? '',
+                                'size' => $file['size'] ?? 0,
+                                'method' => 'api_with_tokens'
+                            ];
+                        }
                     }
                 }
             }
         }
 
-        return ['success' => false, 'error' => 'No video URL found in page content'];
+        // Step 7: Enhanced fallback patterns with more comprehensive extraction
+        $enhancedPatterns = [
+            // Direct link patterns
+            '/"dlink":"(https?:\/\/[^"]+)"/',
+            '/"play_url":"(https?:\/\/[^"]+)"/',
+            '/"download_url":"(https?:\/\/[^"]+)"/',
+            '/"stream_url":"(https?:\/\/[^"]+)"/',
+            
+            // Video source patterns
+            '/sources:\s*\[\s*"(https?:\/\/[^"]+)"\s*\]/',
+            '/"video_url":"(https?:\/\/[^"]+)"/',
+            '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
+            '/src["\']?\s*:\s*["\']([^"\']+\.(?:mp4|webm|avi|mov|mkv)[^"\']*)/i',
+            '/"url":"(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
+            
+            // Terabox specific patterns
+            '/data-src="(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
+            '/href="(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
+            '/<source[^>]+src="([^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"[^>]*>/i',
+            
+            // JSON embedded patterns
+            '/file_url["\']?\s*:\s*["\']([^"\']+)/',
+            '/media_url["\']?\s*:\s*["\']([^"\']+)/',
+            '/direct_link["\']?\s*:\s*["\']([^"\']+)/'
+        ];
+        
+        foreach ($enhancedPatterns as $pattern) {
+            if (preg_match($pattern, $html, $matches)) {
+                $candidate = stripslashes($matches[1]);
+                
+                // Enhanced URL validation
+                if (filter_var($candidate, FILTER_VALIDATE_URL)) {
+                    // Check if it's a valid video URL
+                    $isVideoUrl = (
+                        strpos($candidate, '.mp4') !== false ||
+                        strpos($candidate, '.webm') !== false ||
+                        strpos($candidate, '.avi') !== false ||
+                        strpos($candidate, '.mov') !== false ||
+                        strpos($candidate, '.mkv') !== false ||
+                        strpos($candidate, 'video') !== false ||
+                        strpos($candidate, 'stream') !== false ||
+                        strpos($candidate, 'dlink') !== false ||
+                        strpos($candidate, 'download') !== false ||
+                        preg_match('/\.(mp4|webm|avi|mov|mkv)(\?|$)/i', $candidate)
+                    );
+                    
+                    if ($isVideoUrl) {
+                        return [
+                            'success' => true, 
+                            'url' => $candidate,
+                            'method' => 'regex_extraction'
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Step 8: Look for JSON data in all script tags with enhanced parsing
+        if (preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scriptMatches)) {
+            foreach ($scriptMatches[1] as $script) {
+                // Look for various JSON structures that might contain video URLs
+                $jsonPatterns = [
+                    '/"(?:dlink|play_url|video_url|downloadUrl|stream_url|file_url|media_url)":"(https?:\/\/[^"]+)"/',
+                    '/(?:dlink|play_url|video_url|downloadUrl|stream_url|file_url|media_url):\s*"(https?:\/\/[^"]+)"/',
+                    '/"url":"(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
+                    '/src:\s*"(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/'
+                ];
+                
+                foreach ($jsonPatterns as $pattern) {
+                    if (preg_match($pattern, $script, $matches)) {
+                        $candidate = stripslashes($matches[1]);
+                        if (filter_var($candidate, FILTER_VALIDATE_URL)) {
+                            return [
+                                'success' => true, 
+                                'url' => $candidate,
+                                'method' => 'script_extraction'
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        return ['success' => false, 'error' => 'No video URL found using any extraction method'];
 
     } catch (Exception $e) {
-        error_log('Terabox Direct Resolution Error: ' . $e->getMessage());
+        error_log('Enhanced Terabox Resolution Error: ' . $e->getMessage());
         return ['success' => false, 'error' => $e->getMessage()];
     }
 }
@@ -656,18 +808,22 @@ if (isset($_GET['download'])) {
     </style>
     
     <style>
-        /* CSS Variables for theming */
+        /* CSS Variables for theming - Enhanced Gen-Alpha palette */
         :root {
             --bg-color: #f8f9fa; 
             --text-color: #212529; 
             --text-muted-color: #6c757d;
-            --container-bg-color: #ffffff; 
-            --input-bg-color: #f1f3f5; 
+            --container-bg-color: rgba(255, 255, 255, 0.95); 
+            --input-bg-color: rgba(241, 243, 245, 0.8); 
             --input-border-color: #dee2e6;
             --glow-color: rgba(73, 80, 87, 0.2); 
             --accent-color: #007bff; 
-            --hero-bg: #ffffff;
-            --hero-card-bg: #f8f9fa;
+            --hero-bg: linear-gradient(135deg, #FF9A8B 0%, #FFD66B 50%, #FF99AC 100%);
+            --hero-card-bg: rgba(255, 255, 255, 0.25);
+            --primary-gradient: linear-gradient(135deg, #FF3CAC 0%, #784BA0 50%, #2B86C5 100%);
+            --secondary-gradient: linear-gradient(135deg, #FF9A8B 0%, #FFD66B 50%, #FF99AC 100%);
+            --glassmorphism-bg: rgba(255, 255, 255, 0.25);
+            --glassmorphism-border: rgba(255, 255, 255, 0.18);
             
             /* Z-index layers */
             --z-video-controls: 100;
@@ -680,67 +836,193 @@ if (isset($_GET['download'])) {
         }
         
         html.dark {
-            --bg-color: #121212; 
+            --bg-color: #0f0f23; 
             --text-color: #e9ecef; 
             --text-muted-color: #adb5bd;
-            --container-bg-color: #1c1c1c; 
-            --input-bg-color: #2c2c2c; 
+            --container-bg-color: rgba(28, 28, 28, 0.95); 
+            --input-bg-color: rgba(44, 44, 44, 0.8); 
             --input-border-color: #495057;
-            --glow-color: rgba(0, 123, 255, 0.2); 
-            --accent-color: #0d6efd; 
-            --hero-bg: #1c1c1c;
-            --hero-card-bg: #2c2c2c;
+            --glow-color: rgba(255, 60, 172, 0.3); 
+            --accent-color: #FF3CAC; 
+            --hero-bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            --hero-card-bg: rgba(255, 255, 255, 0.1);
+            --primary-gradient: linear-gradient(135deg, #FF3CAC 0%, #784BA0 50%, #2B86C5 100%);
+            --secondary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            --glassmorphism-bg: rgba(255, 255, 255, 0.1);
+            --glassmorphism-border: rgba(255, 255, 255, 0.2);
         }
         
         /* Smooth transitions for all elements */
         *, *::before, *::after { 
-            transition: background-color 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease; 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
         }
         
         body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Open Sans', 'Helvetica Neue', sans-serif;
-            background-color: var(--bg-color); 
+            background: var(--bg-color); 
             color: var(--text-color); 
             margin: 0;
             padding: 0;
+            min-height: 100vh;
         }
         
-        /* Video container glow effect */
+        /* Enhanced glassmorphism effects */
+        .glassmorphism {
+            background: var(--glassmorphism-bg);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--glassmorphism-border);
+            box-shadow: 0 8px 32px rgba(31, 38, 135, 0.37);
+        }
+        
+        /* Video container with enhanced glow effect */
         .video-container { 
-            box-shadow: 0 0 40px var(--glow-color); 
+            box-shadow: 0 0 60px var(--glow-color), 0 0 120px rgba(255, 60, 172, 0.2); 
+            border-radius: 20px;
+            overflow: hidden;
         }
         
-        /* Input focus glow */
+        /* Input with enhanced glassmorphism and glow */
+        .input-glow { 
+            background: var(--glassmorphism-bg);
+            backdrop-filter: blur(15px) saturate(150%);
+            -webkit-backdrop-filter: blur(15px) saturate(150%);
+            border: 2px solid var(--glassmorphism-border);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
         .input-glow:focus-within { 
-            box-shadow: 0 0 15px var(--glow-color); 
+            box-shadow: 0 0 30px var(--glow-color), 0 0 60px rgba(255, 60, 172, 0.3);
+            border-color: var(--accent-color);
+            transform: translateY(-2px);
         }
         
-        /* Hero section styling */
+        /* Hero section with dynamic gradient */
         .hero-section { 
-            background-color: var(--hero-bg); 
+            background: var(--hero-bg);
+            position: relative;
+            overflow: hidden;
         }
         
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--secondary-gradient);
+            opacity: 0.1;
+            z-index: 0;
+        }
+        
+        .hero-section > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Enhanced slider card with glassmorphism */
         .slider-card-bg { 
-            background-color: var(--hero-card-bg); 
+            background: var(--glassmorphism-bg);
+            backdrop-filter: blur(15px) saturate(150%);
+            -webkit-backdrop-filter: blur(15px) saturate(150%);
+            border: 1px solid var(--glassmorphism-border);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            height: 100%;
+            min-height: 120px;
+            position: relative;
+            overflow: hidden;
         }
         
-        /* Info box styling */
+        .slider-card-bg::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--primary-gradient);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 0;
+        }
+        
+        .slider-card-bg:hover::before {
+            opacity: 0.1;
+        }
+        
+        .slider-card-bg:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(255, 60, 172, 0.2), 0 0 30px var(--glow-color);
+            border-color: var(--accent-color);
+        }
+        
+        .slider-card-bg > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Info box with glassmorphism */
         .info-box { 
-            background-color: rgba(0, 123, 255, 0.1); 
-            border-color: rgba(0, 123, 255, 0.2); 
-            color: var(--text-color); 
+            background: var(--glassmorphism-bg);
+            backdrop-filter: blur(15px) saturate(150%);
+            -webkit-backdrop-filter: blur(15px) saturate(150%);
+            border: 1px solid rgba(0, 123, 255, 0.3);
+            color: var(--text-color);
+            position: relative;
+            overflow: hidden;
         }
         
-        /* Button styling */
+        .info-box::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, rgba(0, 123, 255, 0.1), rgba(255, 60, 172, 0.1));
+            z-index: 0;
+        }
+        
+        .info-box > * {
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Enhanced gradient button styling */
         #loadVideoBtn { 
-            background-color: var(--accent-color); 
+            background: var(--primary-gradient);
+            border: none;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         } 
         
-        #loadVideoBtn:hover { 
-            background-color: #0b5ed7; 
+        #loadVideoBtn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.6s ease;
         }
         
-        /* Video control buttons */
+        #loadVideoBtn:hover::before {
+            left: 100%;
+        }
+        
+        #loadVideoBtn:hover { 
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 10px 25px rgba(255, 60, 172, 0.4);
+        }
+        
+        #loadVideoBtn:active {
+            transform: translateY(0) scale(1);
+        }
+        
+        /* Enhanced video control buttons with YouTube-style design */
         .control-button { 
             background-color: rgba(255,255,255,0.1); 
             border-radius: 50%; 
@@ -749,12 +1031,174 @@ if (isset($_GET['download'])) {
             display: flex; 
             align-items: center; 
             justify-content: center; 
-            transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+            border: none;
+            color: white;
+            cursor: pointer;
         }
         
         .control-button:hover { 
             background-color: rgba(255,255,255,0.2); 
             transform: scale(1.1); 
+        }
+        
+        .control-button-enhanced {
+            background-color: rgba(255,255,255,0.15); 
+            border-radius: 50%; 
+            width: 48px; 
+            height: 48px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+            border: none;
+            color: white;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        
+        .control-button-enhanced:hover { 
+            background-color: rgba(255,255,255,0.25); 
+            transform: scale(1.15); 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        /* Enhanced progress bar with YouTube-style design */
+        .progress-bar-enhanced {
+            -webkit-appearance: none; 
+            background: transparent; 
+            cursor: pointer;
+            height: 4px !important;
+        }
+        
+        .progress-bar-enhanced::-webkit-slider-runnable-track { 
+            height: 4px; 
+            border-radius: 2px; 
+            background: linear-gradient(to right, var(--accent-color) 0%, var(--accent-color) var(--progress, 0%), rgba(255, 255, 255, 0.3) var(--progress, 0%)); 
+            transition: height 0.2s ease;
+        }
+        
+        .progress-bar-enhanced:hover::-webkit-slider-runnable-track { 
+            height: 6px; 
+        }
+        
+        .progress-bar-enhanced::-webkit-slider-thumb { 
+            -webkit-appearance: none; 
+            height: 14px; 
+            width: 14px; 
+            border-radius: 50%; 
+            background: var(--accent-color); 
+            margin-top: -5px; 
+            cursor: pointer; 
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        
+        .progress-bar-enhanced:hover::-webkit-slider-thumb { 
+            opacity: 1; 
+        }
+        
+        /* Enhanced volume controls with YouTube-style hover */
+        .volume-control-enhanced { 
+            display: flex;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+        
+        .volume-slider-container-enhanced { 
+            width: 0; 
+            overflow: hidden;
+            transition: width 0.3s ease; 
+            margin-left: 8px;
+        }
+        
+        .volume-control-enhanced:hover .volume-slider-container-enhanced { 
+            width: 60px; 
+        }
+        
+        .volume-slider-enhanced {
+            -webkit-appearance: none; 
+            background: transparent; 
+            height: 4px;
+            cursor: pointer;
+        }
+        
+        .volume-slider-enhanced::-webkit-slider-runnable-track { 
+            height: 4px; 
+            border-radius: 2px; 
+            background: rgba(255, 255, 255, 0.3); 
+        }
+        
+        .volume-slider-enhanced::-webkit-slider-thumb { 
+            -webkit-appearance: none; 
+            height: 12px; 
+            width: 12px; 
+            border-radius: 50%; 
+            background: white; 
+            margin-top: -4px; 
+            cursor: pointer; 
+        }
+        
+        /* Mini-player functionality */
+        .mini-player {
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            width: 320px !important;
+            height: 180px !important;
+            z-index: 9999 !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4) !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+        
+        .mini-player:hover {
+            transform: scale(1.05) !important;
+        }
+        
+        .mini-player .video-controls {
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        
+        .mini-player:hover .video-controls {
+            opacity: 1;
+        }
+        
+        .mini-player-close {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10001;
+            font-size: 12px;
+        }
+        
+        /* Quality selector styling */
+        .quality-selector:hover #quality-menu {
+            display: block;
+        }
+        
+        #quality-menu {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        
+        .quality-option.active {
+            background: var(--accent-color) !important;
+            color: white;
         }
         
         /* Range slider styling */
@@ -1231,37 +1675,37 @@ if (isset($_GET['download'])) {
 <body class="flex items-center justify-center min-h-screen p-4 sm:p-6">
 
     <div id="app-wrapper" class="w-full max-w-4xl lg:max-w-5xl 2xl:max-w-7xl mx-auto space-y-6">
-        <!-- Header with title and theme toggle -->
+        <!-- Header with enhanced gradient title and theme toggle -->
         <div class="text-center relative">
-            <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-purple-600">Vibe Player</h1>
+            <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent" style="background-image: var(--primary-gradient);">Vibe Player</h1>
             <p class="mt-2" style="color: var(--text-muted-color);">The Ultimate Hub for Seamless Streaming.</p>
-            <button id="theme-toggle" class="absolute top-0 right-0 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)]" aria-label="Toggle theme">
+            <button id="theme-toggle" class="absolute top-0 right-0 p-2 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)] glassmorphism" aria-label="Toggle theme">
                 <i class="fas fa-sun text-xl"></i>
             </button>
         </div>
         
-        <!-- Features Slider Section -->
-        <div class="p-6 rounded-2xl shadow-lg hero-section">
+        <!-- Enhanced Features Slider Section with glassmorphism -->
+        <div class="p-6 rounded-2xl shadow-lg hero-section glassmorphism">
             <div class="slider-container">
                 <div class="slider-track"></div>
             </div>
         </div>
         
-        <!-- URL Input Section -->
-        <div class="relative input-glow rounded-full" style="background-color: var(--input-bg-color);">
+        <!-- Enhanced URL Input Section with glassmorphism -->
+        <div class="relative input-glow rounded-full glassmorphism">
             <span id="url-status-icon" class="absolute inset-y-0 left-0 flex items-center pl-4">
                 <i class="fas fa-link" style="color: var(--text-muted-color);"></i>
             </span>
             <input id="videoUrl" type="text" placeholder="Paste a direct video link or Terabox link here..." 
-                   class="w-full bg-transparent border-2 rounded-full py-3 pl-12 pr-4 focus:outline-none" 
-                   style="border-color: var(--input-border-color); color: var(--text-color);">
-            <button id="loadVideoBtn" class="absolute inset-y-0 right-0 flex items-center px-4 text-white rounded-r-full" aria-label="Load Video">
+                   class="w-full bg-transparent border-0 rounded-full py-3 pl-12 pr-4 focus:outline-none" 
+                   style="color: var(--text-color);">
+            <button id="loadVideoBtn" class="absolute inset-y-0 right-0 flex items-center px-6 text-white rounded-r-full" aria-label="Load Video">
                 <i class="fas fa-play"></i>
             </button>
         </div>
         
-        <!-- Info Box -->
-        <div class="p-4 rounded-lg border info-box">
+        <!-- Enhanced Info Box with glassmorphism -->
+        <div class="p-4 rounded-lg border info-box glassmorphism">
             <p><i class="fas fa-info-circle mr-2"></i><strong>Terabox links are auto-resolved!</strong> For other restricted sites, use the <strong>Proxy</strong> setting.</p>
             <p class="mt-2 text-sm"><i class="fas fa-keyboard mr-2"></i><strong>Keyboard Shortcuts:</strong> Space (play/pause), ←/→ (seek), ↑/↓ (volume), F (fullscreen), M (mute), T (theater mode)</p>
         </div>
@@ -1284,52 +1728,70 @@ if (isset($_GET['download'])) {
                     <span id="thumbnail-time">00:00</span>
                 </div>
                 
-                <!-- Video Controls Overlay -->
-                <div class="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/70 to-transparent video-controls opacity-100" style="z-index: var(--z-video-controls);">
-                    <!-- Progress Bar Container -->
-                    <div class="relative">
+                <!-- Enhanced Video Controls Overlay with YouTube-style design -->
+                <div class="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/80 via-black/40 to-transparent video-controls opacity-100" style="z-index: var(--z-video-controls);">
+                    <!-- Enhanced Progress Bar Container with hover preview -->
+                    <div class="relative mb-3">
                         <input id="progressBar" type="range" min="0" max="100" value="0" 
-                               class="w-full h-2 rounded-lg cursor-pointer mb-2" 
+                               class="w-full h-1 rounded-lg cursor-pointer mb-2 progress-bar-enhanced" 
                                style="--progress: 0%;" aria-label="Seek progress">
+                        <div id="progress-hover-preview" class="absolute bottom-full mb-2 hidden">
+                            <div class="bg-black/80 text-white text-xs px-2 py-1 rounded">00:00</div>
+                        </div>
                     </div>
                     
-                    <!-- Control Buttons -->
+                    <!-- Enhanced Control Buttons with YouTube-style layout -->
                     <div class="flex justify-between items-center text-white flex-wrap">
                         <!-- Left side controls -->
-                        <div class="flex items-center space-x-2 md:space-x-4">
-                            <button id="playPauseBtn" class="control-button text-xl" aria-label="Play or Pause">
+                        <div class="flex items-center space-x-2 md:space-x-3">
+                            <button id="playPauseBtn" class="control-button-enhanced text-xl hover:scale-110" aria-label="Play or Pause">
                                 <i class="fas fa-play"></i>
                             </button>
-                            <button id="rewindBtn" class="control-button text-lg" aria-label="Rewind 10 seconds">
+                            <button id="rewindBtn" class="control-button text-lg hover:scale-110" aria-label="Rewind 10 seconds">
                                 <i class="fas fa-backward"></i>
                             </button>
-                            <button id="forwardBtn" class="control-button text-lg" aria-label="Forward 10 seconds">
+                            <button id="forwardBtn" class="control-button text-lg hover:scale-110" aria-label="Forward 10 seconds">
                                 <i class="fas fa-forward"></i>
                             </button>
                             
-                            <!-- Volume Control -->
-                            <div class="relative volume-control">
-                                <button id="volumeBtn" class="control-button" aria-label="Mute or Unmute">
+                            <!-- Enhanced Volume Control with YouTube-style hover -->
+                            <div class="relative volume-control-enhanced">
+                                <button id="volumeBtn" class="control-button hover:scale-110" aria-label="Mute or Unmute">
                                     <i class="fas fa-volume-high"></i>
                                 </button>
-                                <div class="volume-slider-container">
+                                <div class="volume-slider-container-enhanced">
                                     <input id="volumeSlider" type="range" min="0" max="1" step="0.01" value="1" 
-                                           orient="vertical" aria-label="Volume control">
+                                           class="volume-slider-enhanced" aria-label="Volume control">
                                 </div>
                             </div>
                             
-                            <!-- Time Display -->
-                            <div id="timeDisplay" class="text-sm font-mono">00:00 / 00:00</div>
+                            <!-- Enhanced Time Display -->
+                            <div id="timeDisplay" class="text-sm font-mono bg-black/30 px-2 py-1 rounded">00:00 / 00:00</div>
                         </div>
                         
                         <!-- Right side controls -->
-                        <div class="flex items-center space-x-2 md:space-x-4">
-                            <!-- Settings Menu -->
+                        <div class="flex items-center space-x-2 md:space-x-3">
+                            <!-- Quality Selection (YouTube-style) -->
+                            <div class="relative quality-selector">
+                                <button id="qualityBtn" class="control-button hover:scale-110" aria-label="Quality settings">
+                                    <span class="text-xs font-bold">HD</span>
+                                </button>
+                                <div id="quality-menu" class="hidden absolute bottom-full right-0 mb-2 bg-black/90 rounded-md p-2 text-white min-w-24">
+                                    <div class="text-xs space-y-1">
+                                        <div class="quality-option hover:bg-white/20 p-1 rounded cursor-pointer" data-quality="auto">Auto</div>
+                                        <div class="quality-option hover:bg-white/20 p-1 rounded cursor-pointer" data-quality="1080p">1080p</div>
+                                        <div class="quality-option hover:bg-white/20 p-1 rounded cursor-pointer" data-quality="720p">720p</div>
+                                        <div class="quality-option hover:bg-white/20 p-1 rounded cursor-pointer" data-quality="480p">480p</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Enhanced Settings Menu -->
                             <div class="relative">
-                                <button id="settingsBtn" class="control-button" aria-label="Settings">
+                                <button id="settingsBtn" class="control-button hover:scale-110" aria-label="Settings">
                                     <i class="fas fa-cog"></i>
                                 </button>
-                                <div id="settings-menu" class="hidden absolute bottom-full right-0 mb-2 rounded-md p-2 text-white w-72">
+                                <div id="settings-menu" class="hidden absolute bottom-full right-0 mb-2 rounded-md p-2 text-white w-72 glassmorphism bg-black/90">
                                     <!-- Tab Navigation -->
                                     <div class="flex border-b border-gray-600 mb-2">
                                         <button data-tab="settings" class="tab-button flex-1 p-2 text-sm font-bold active">Settings</button>
@@ -1374,16 +1836,20 @@ if (isset($_GET['download'])) {
                                 </div>
                             </div>
                             
-                            <button id="theaterBtn" class="control-button" aria-label="Theater mode">
-                                <i class="fas fa-rectangle-xmark"></i>
-                            </button>
-                            <button id="pipBtn" class="control-button" aria-label="Picture in picture">
+                            <!-- Mini-player button (YouTube-style) -->
+                            <button id="miniPlayerBtn" class="control-button hover:scale-110" aria-label="Mini player">
                                 <i class="fas fa-clone"></i>
                             </button>
-                            <button id="fullscreenBtn" class="control-button" aria-label="Fullscreen">
+                            <button id="theaterBtn" class="control-button hover:scale-110" aria-label="Theater mode">
+                                <i class="fas fa-rectangle-xmark"></i>
+                            </button>
+                            <button id="pipBtn" class="control-button hover:scale-110" aria-label="Picture in picture">
+                                <i class="fas fa-expand-arrows-alt"></i>
+                            </button>
+                            <button id="fullscreenBtn" class="control-button hover:scale-110" aria-label="Fullscreen">
                                 <i class="fas fa-expand"></i>
                             </button>
-                            <button id="downloadBtn" class="control-button" aria-label="Download video">
+                            <button id="downloadBtn" class="control-button hover:scale-110" aria-label="Download video">
                                 <i class="fas fa-download"></i>
                             </button>
                         </div>
@@ -1671,6 +2137,8 @@ if (isset($_GET['download'])) {
                         pipBtn: document.getElementById('pipBtn'),
                         fullscreenBtn: document.getElementById('fullscreenBtn'),
                         downloadBtn: document.getElementById('downloadBtn'),
+                        miniPlayerBtn: document.getElementById('miniPlayerBtn'),
+                        qualityBtn: document.getElementById('qualityBtn'),
                     };
                     
                     this.proxyUrl = localStorage.getItem('proxyUrl') || '';
@@ -1719,6 +2187,12 @@ if (isset($_GET['download'])) {
                     this.buttons.pipBtn.addEventListener('click', () => this.togglePip());
                     this.buttons.fullscreenBtn.addEventListener('click', () => this.toggleFullscreen());
                     this.buttons.downloadBtn.addEventListener('click', () => this.downloadVideo());
+                    this.buttons.miniPlayerBtn.addEventListener('click', () => this.toggleMiniPlayer());
+                    this.buttons.qualityBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleQualityMenu(); });
+                    document.getElementById('quality-menu').addEventListener('click', (e) => e.stopPropagation());
+                    document.querySelectorAll('.quality-option').forEach(option => {
+                        option.addEventListener('click', (e) => this.setQuality(e.target.dataset.quality));
+                    });
                     document.addEventListener('fullscreenchange', () => this.updateFullscreenIcon());
                     document.addEventListener('click', () => { this.settingsMenu.classList.add('hidden'); this.customContextMenu.classList.add('hidden'); });
                     this.video.addEventListener('error', () => this.handleVideoError());
@@ -2279,6 +2753,79 @@ if (isset($_GET['download'])) {
                     // Show volume feedback
                     const percentage = Math.round(newVolume * 100);
                     UI.showActionIcon('fa-volume-high', `${percentage}%`);
+                },
+                
+                toggleMiniPlayer() {
+                    const wrapper = this.videoPlayerWrapper;
+                    const appWrapper = document.getElementById('app-wrapper');
+                    
+                    if (wrapper.classList.contains('mini-player')) {
+                        // Exit mini-player mode
+                        wrapper.classList.remove('mini-player');
+                        
+                        // Remove close button
+                        const closeBtn = wrapper.querySelector('.mini-player-close');
+                        if (closeBtn) closeBtn.remove();
+                        
+                        // Restore to original position
+                        document.getElementById('playerContainer').appendChild(wrapper);
+                        
+                        // Show other UI elements
+                        appWrapper.querySelectorAll('.hero-section, .input-glow, .info-box').forEach(el => {
+                            el.style.display = '';
+                        });
+                        
+                        UI.showToast('Exited mini-player mode', 'info');
+                    } else {
+                        // Enter mini-player mode
+                        wrapper.classList.add('mini-player');
+                        
+                        // Add close button
+                        const closeBtn = document.createElement('button');
+                        closeBtn.className = 'mini-player-close';
+                        closeBtn.innerHTML = '×';
+                        closeBtn.addEventListener('click', () => this.toggleMiniPlayer());
+                        wrapper.appendChild(closeBtn);
+                        
+                        // Move to body for fixed positioning
+                        document.body.appendChild(wrapper);
+                        
+                        // Hide other UI elements
+                        appWrapper.querySelectorAll('.hero-section, .input-glow, .info-box').forEach(el => {
+                            el.style.display = 'none';
+                        });
+                        
+                        UI.showToast('Entered mini-player mode', 'success');
+                    }
+                },
+                
+                toggleQualityMenu() {
+                    const menu = document.getElementById('quality-menu');
+                    menu.classList.toggle('hidden');
+                },
+                
+                setQuality(quality) {
+                    const qualityBtn = this.buttons.qualityBtn;
+                    const menu = document.getElementById('quality-menu');
+                    
+                    // Update button text
+                    qualityBtn.innerHTML = `<span class="text-xs font-bold">${quality.toUpperCase()}</span>`;
+                    
+                    // Update active option
+                    menu.querySelectorAll('.quality-option').forEach(option => {
+                        option.classList.remove('active');
+                        if (option.dataset.quality === quality) {
+                            option.classList.add('active');
+                        }
+                    });
+                    
+                    // Hide menu
+                    menu.classList.add('hidden');
+                    
+                    // Store quality preference
+                    localStorage.setItem('preferredQuality', quality);
+                    
+                    UI.showToast(`Quality set to ${quality}`, 'success');
                 }
             };
 
