@@ -4,18 +4,197 @@
  * 
  * This script provides multiple fallback methods for resolving Terabox links
  * to direct video URLs without requiring user login.
+ * Enhanced with security, caching, and streaming support.
  */
 
-// Simple in-memory cache for resolved links
-$linkCache = [];
-$cacheTimeout = 1800; // 30 minutes
+// Security and rate limiting configuration
+$rateLimit = [
+    'max_requests' => 10,  // requests per minute
+    'window' => 60,        // seconds
+    'cleanup_interval' => 300 // cleanup old entries every 5 minutes
+];
 
-// Check cache before resolution
+// Caching configuration
+$cacheTimeout = 900; // 15 minutes (reduced from 30 for better performance)
+$cacheDir = sys_get_temp_dir() . '/vibeplayercache';
+
+// Create cache directory if it doesn't exist
+if (!is_dir($cacheDir)) {
+    mkdir($cacheDir, 0755, true);
+}
+
+// Security: Validate and sanitize user input
+function validateUrl($url) {
+    if (!$url || !filter_var($url, FILTER_VALIDATE_URL)) {
+        return false;
+    }
+    
+    $parsed = parse_url($url);
+    if (!$parsed || !isset($parsed['host'])) {
+        return false;
+    }
+    
+    // Whitelist allowed hostnames
+    $allowedHosts = [
+        'terabox.com', 'www.terabox.com', '1024terabox.com', 
+        'terabox.co', 'terabox.app', 'dm.terabox.app'
+    ];
+    
+    $host = strtolower($parsed['host']);
+    $isAllowed = false;
+    
+    foreach ($allowedHosts as $allowedHost) {
+        if ($host === $allowedHost || str_ends_with($host, '.' . $allowedHost)) {
+            $isAllowed = true;
+            break;
+        }
+    }
+    
+    if (!$isAllowed) {
+        return false;
+    }
+    
+    // SSRF Protection: Resolve hostname and check for private IPs
+    $ip = gethostbyname($host);
+    if ($ip === $host) {
+        // Hostname resolution failed
+        return false;
+    }
+    
+    // Block private IP ranges
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
+        return false;
+    }
+    
+    return true;
+}
+
+// Rate limiting function
+function checkRateLimit($ip) {
+    global $rateLimit, $cacheDir;
+    
+    $rateLimitFile = $cacheDir . '/rate_limit_' . md5($ip);
+    $now = time();
+    
+    // Load existing rate limit data
+    $requests = [];
+    if (file_exists($rateLimitFile)) {
+        $data = json_decode(file_get_contents($rateLimitFile), true);
+        if ($data && isset($data['requests'])) {
+            // Filter out old requests outside the window
+            $requests = array_filter($data['requests'], function($timestamp) use ($now, $rateLimit) {
+                return ($now - $timestamp) < $rateLimit['window'];
+            });
+        }
+    }
+    
+    // Check if rate limit exceeded
+    if (count($requests) >= $rateLimit['max_requests']) {
+        return false;
+    }
+    
+    // Add current request
+    $requests[] = $now;
+    
+    // Save updated rate limit data
+    file_put_contents($rateLimitFile, json_encode(['requests' => $requests]));
+    
+    return true;
+}
+
+// Enhanced streaming endpoint with Range header support
+if (isset($_GET['stream'])) {
+    $videoUrl = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
+    
+    if (!$videoUrl) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Missing or invalid video URL']);
+        exit;
+    }
+    
+    // Basic URL validation for streaming
+    if (!filter_var($videoUrl, FILTER_VALIDATE_URL)) {
+        http_response_code(400);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Invalid video URL format']);
+        exit;
+    }
+    
+    try {
+        // Get video info and handle Range requests
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $videoUrl,
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 0, // No timeout for streaming
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            CURLOPT_HTTPHEADER => [
+                'Accept: */*',
+                'Accept-Encoding: identity',
+                'Connection: keep-alive',
+                'Referer: https://terabox.com/',
+            ],
+            CURLOPT_WRITEFUNCTION => function($ch, $data) {
+                echo $data;
+                flush();
+                return strlen($data);
+            }
+        ]);
+        
+        // Handle Range requests from client
+        if (isset($_SERVER['HTTP_RANGE'])) {
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge(
+                curl_getopt($ch, CURLOPT_HTTPHEADER),
+                ['Range: ' . $_SERVER['HTTP_RANGE']]
+            ));
+        }
+        
+        // Set headers before executing
+        header('Content-Type: video/mp4');
+        header('Accept-Ranges: bytes');
+        header('Access-Control-Allow-Origin: *');
+        header('Access-Control-Allow-Headers: Range');
+        
+        $result = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        
+        if ($httpCode === 206) {
+            http_response_code(206);
+        }
+        
+        curl_close($ch);
+        
+    } catch (Exception $e) {
+        http_response_code(500);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Streaming failed: ' . $e->getMessage()]);
+    }
+    
+    exit;
+}
+
+// Enhanced resolver API with security and rate limiting
 if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== false)) {
     header('Content-Type: application/json');
     header('Access-Control-Allow-Origin: *');
     header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type');
+    
+    // Rate limiting check
+    $clientIP = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['HTTP_X_REAL_IP'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    if (!checkRateLimit($clientIP)) {
+        http_response_code(429);
+        echo json_encode([
+            'success' => false, 
+            'error' => 'rate_limit_exceeded',
+            'message' => 'Too many requests. Please wait before trying again.',
+            'retry_after' => 60
+        ]);
+        exit;
+    }
     
     // Handle POST requests with JSON body
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -25,164 +204,112 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
         $url = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
     }
     
-    if (!$url || !str_contains($url, 'terabox.com')) {
-        echo json_encode(['success' => false, 'message' => 'Invalid Terabox URL']);
+    // Enhanced URL validation
+    if (!validateUrl($url)) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false, 
+            'error' => 'invalid_url',
+            'message' => 'Invalid or blocked URL. Only Terabox domains are allowed.'
+        ]);
         exit;
     }
 
-    // Check cache first
+    // Check cache first with improved cache key
     $cacheKey = md5($url);
-    $cacheFile = sys_get_temp_dir() . '/terabox_cache_' . $cacheKey;
+    $cacheFile = $cacheDir . '/resolve_' . $cacheKey . '.json';
     
     if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTimeout) {
         $cachedResult = json_decode(file_get_contents($cacheFile), true);
         if ($cachedResult && $cachedResult['success']) {
             $cachedResult['cached'] = true;
+            $cachedResult['cache_hit'] = true;
             echo json_encode($cachedResult);
             exit;
         }
     }
 
-    /**
-     * Multiple resolution methods for maximum success rate
-     * Uses various proxy services and direct API calls
-     */
-    $proxies = [
-        'https://corsproxy.io/?',
-        'https://api.allorigins.win/raw?url=',
-        'https://thingproxy.freeboard.io/fetch/',
-        'https://cors-anywhere.herokuapp.com/',
-        'https://api.codetabs.com/v1/proxy?quest='
-    ];
+    // Enhanced direct resolution with retry mechanism
+    $maxRetries = 3;
+    $retryDelay = 1; // Start with 1 second
     
-    $resolvedUrl = null;
-    $errors = [];
-    
-    // Try direct method first (fastest and most reliable)
-    try {
-        $result = resolveTeraboxDirect($url);
-        if ($result['success']) {
-            // Cache successful result
-            file_put_contents($cacheFile, json_encode($result));
-            echo json_encode($result);
-            exit;
-        }
-        $errors[] = "Direct method: " . ($result['error'] ?? 'No video URL found in page content');
-    } catch (Exception $e) {
-        $errors[] = "Direct method failed: " . $e->getMessage();
-    }
-    
-    // Fallback to proxy methods with enhanced error handling
-    foreach ($proxies as $proxy) {
+    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
         try {
-            $targetUrl = $proxy . urlencode($url);
-            $ch = curl_init();
-            curl_setopt_array($ch, [
-                CURLOPT_URL => $targetUrl,
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_TIMEOUT => 15,
-                CURLOPT_CONNECTTIMEOUT => 10,
-                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                CURLOPT_SSL_VERIFYPEER => false,
-                CURLOPT_SSL_VERIFYHOST => false,
-                CURLOPT_HTTPHEADER => [
-                    'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language: en-US,en;q=0.5',
-                    'Accept-Encoding: gzip, deflate',
-                    'Connection: keep-alive',
-                    'Upgrade-Insecure-Requests: 1',
-                    'Cache-Control: no-cache'
-                ]
-            ]);
-            
-            $html = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlError = curl_error($ch);
-            curl_close($ch);
-            
-            if ($curlError) {
-                $errors[] = "Proxy $proxy cURL error: $curlError";
-                continue;
+            $result = resolveTeraboxDirect($url);
+            if ($result['success']) {
+                // Cache successful result
+                file_put_contents($cacheFile, json_encode($result));
+                $result['cache_hit'] = false;
+                echo json_encode($result);
+                exit;
             }
             
-            if ($httpCode !== 200 || !$html) {
-                $errors[] = "Proxy $proxy returned HTTP $httpCode";
-                continue;
+            if ($attempt < $maxRetries) {
+                // Exponential backoff for retry
+                sleep($retryDelay);
+                $retryDelay *= 2;
+            } else {
+                $errors[] = "Direct method (attempt $attempt): " . ($result['error'] ?? 'No video URL found');
             }
             
-            // Enhanced video URL extraction patterns with better validation
-            $patterns = [
-                '/"dlink":"(https?:\/\/[^"]+)"/',
-                '/"play_url":"(https?:\/\/[^"]+)"/',
-                '/sources:\["(https?:\/\/[^"]+)"\]/',
-                '/"video_url":"(https?:\/\/[^"]+)"/',
-                '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
-                '/src["\']?\s*:\s*["\']([^"\']+\.mp4[^"\']*)/i',
-                '/"url":"(https?:\/\/[^"]+\.mp4[^"]*)"/',
-                '/data-src="(https?:\/\/[^"]+\.mp4[^"]*)"/',
-                '/href="(https?:\/\/[^"]+\.mp4[^"]*)"/',
-                '/"downloadUrl":"(https?:\/\/[^"]+)"/',
-                '/"stream_url":"(https?:\/\/[^"]+)"/'
-            ];
-            
-            foreach ($patterns as $pattern) {
-                if (preg_match($pattern, $html, $matches)) {
-                    $resolvedUrl = stripslashes($matches[1]);
-                    // Enhanced URL validation
-                    if (filter_var($resolvedUrl, FILTER_VALIDATE_URL) && 
-                        (strpos($resolvedUrl, '.mp4') !== false || 
-                         strpos($resolvedUrl, 'video') !== false ||
-                         strpos($resolvedUrl, 'stream') !== false ||
-                         strpos($resolvedUrl, 'dlink') !== false ||
-                         preg_match('/\.(mp4|webm|avi|mov|mkv)(\?|$)/i', $resolvedUrl))) {
-                        $successResult = ['success' => true, 'url' => $resolvedUrl];
-                        // Cache successful result
-                        file_put_contents($cacheFile, json_encode($successResult));
-                        echo json_encode($successResult);
-                        exit;
-                    }
-                }
-            }
-            
-            $errors[] = "Proxy $proxy: No valid video URL found in response";
         } catch (Exception $e) {
-            $errors[] = "Proxy $proxy error: " . $e->getMessage();
+            if ($attempt < $maxRetries) {
+                sleep($retryDelay);
+                $retryDelay *= 2;
+            } else {
+                $errors[] = "Direct method failed after $maxRetries attempts: " . $e->getMessage();
+            }
         }
     }
     
-    echo json_encode(['success' => false, 'message' => 'Resolution failed', 'errors' => $errors]);
+    // If all attempts failed, return comprehensive error
+    http_response_code(502);
+    echo json_encode([
+        'success' => false, 
+        'error' => 'resolution_failed',
+        'message' => 'Failed to resolve Terabox link after multiple attempts',
+        'details' => $errors,
+        'retry_after' => 30
+    ]);
     exit;
 }
 
 /**
- * Enhanced Direct Terabox resolution method following the exact approach from problem statement
- * Uses server-side direct API calls to TeraBox's share APIs for maximum reliability
+ * Enhanced Direct Terabox resolution method following exact specifications
+ * Implements robust share ID extraction, API calls with retry mechanism,
+ * and comprehensive error handling as specified in requirements.
  */
 function resolveTeraboxDirect($url) {
     try {
-        // Step 1: Extract share ID and domain from URL
+        // Step 1: Extract share ID from user URL (accept domain variants)
         $parsedUrl = parse_url($url);
         $domain = $parsedUrl['host'] ?? 'terabox.com';
         
-        // Extract surl/share ID from URL - multiple patterns supported
+        // Extract surl/share ID from URL - enhanced patterns for all variants
         $surl = '';
-        if (preg_match('/\/s\/([a-zA-Z0-9_-]+)/', $url, $matches)) {
-            $surl = $matches[1];
-        } elseif (preg_match('/surl=([a-zA-Z0-9_-]+)/', $url, $matches)) {
-            $surl = $matches[1];
-        } elseif (preg_match('/\/sharing\/link\?surl=([a-zA-Z0-9_-]+)/', $url, $matches)) {
-            $surl = $matches[1];
+        $patterns = [
+            '/\/s\/([a-zA-Z0-9_-]+)/',
+            '/surl=([a-zA-Z0-9_-]+)/',
+            '/\/sharing\/link\?surl=([a-zA-Z0-9_-]+)/',
+            '/shorturl=([a-zA-Z0-9_-]+)/',
+            '/share\/([a-zA-Z0-9_-]+)/'
+        ];
+        
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $url, $matches)) {
+                $surl = $matches[1];
+                break;
+            }
         }
         
         if (!$surl) {
             throw new Exception("Could not extract share ID from TeraBox URL");
         }
 
-        // Step 2: Try direct API call first (as mentioned in problem statement)
+        // Step 2: Call exact API as specified in requirements
         $apiUrl = "https://www.terabox.com/share/list";
         $params = [
-            'app_id' => '250528', // Known app_id from TeraBox's open-platform integration
+            'app_id' => '250528',
             'shorturl' => $surl,
             'root' => '1'
         ];
@@ -191,16 +318,14 @@ function resolveTeraboxDirect($url) {
         curl_setopt_array($ch, [
             CURLOPT_URL => $apiUrl . '?' . http_build_query($params),
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_TIMEOUT => 15,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_HTTPHEADER => [
-                'Accept: application/json, text/plain, */*',
-                'Accept-Language: en-US,en;q=0.9',
+                'Accept: application/json',
                 'Referer: https://terabox.com/sharing/link?surl=' . $surl,
-                'DNT: 1',
-                'Connection: keep-alive',
-                'Cache-Control: no-cache'
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             ]
         ]);
         
@@ -209,283 +334,77 @@ function resolveTeraboxDirect($url) {
         $curlError = curl_error($ch);
         curl_close($ch);
         
-        // If direct API call succeeds, parse response
-        if ($apiHttpCode === 200 && $apiResponse && !$curlError) {
-            $apiData = json_decode($apiResponse, true);
-            if ($apiData && isset($apiData['list']) && !empty($apiData['list'])) {
-                $file = $apiData['list'][0];
-                if (isset($file['dlink']) && !empty($file['dlink'])) {
-                    return [
-                        'success' => true,
-                        'url' => $file['dlink'],
-                        'file_name' => $file['server_filename'] ?? 'video.mp4',
-                        'thumbnail' => $file['thumbs']['url3'] ?? '',
-                        'size' => $file['size'] ?? 0,
-                        'method' => 'direct_api'
-                    ];
-                }
-            }
+        // Validate response and extract data
+        if ($curlError) {
+            throw new Exception('cURL Error: ' . $curlError);
         }
-
-        // Step 3: Fallback to page scraping with enhanced token extraction
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL => $url,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => 20,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_HTTPHEADER => [
-                'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language: en-US,en;q=0.5',
-                'Accept-Encoding: gzip, deflate',
-                'Connection: keep-alive',
-                'Upgrade-Insecure-Requests: 1',
-                'Cache-Control: no-cache',
-                'Pragma: no-cache'
-            ]
-        ]);
         
-        $html = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $finalUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-        
-        if (curl_errno($ch)) {
-            throw new Exception('cURL Error: ' . curl_error($ch));
+        if ($apiHttpCode !== 200) {
+            throw new Exception('API returned HTTP ' . $apiHttpCode);
         }
-        curl_close($ch);
-
-        if ($httpCode !== 200 || empty($html)) {
-            throw new Exception('Failed to fetch Terabox page. HTTP Code: ' . $httpCode);
-        }
-
-        // Step 4: Enhanced token extraction with multiple patterns
-        $jsToken = null;
-        $logid = null;
-        $bdstoken = null;
         
-        // Try multiple extraction patterns for jsToken
-        $tokenPatterns = [
-            '/"jsToken":"([^"]+)"/',
-            "/'jsToken':'([^']+)'/",
-            '/jsToken["\']?\s*:\s*["\']([^"\']+)/',
-            '/window\.jsToken\s*=\s*["\']([^"\']+)/'
+        if (!$apiResponse) {
+            throw new Exception('Empty response from API');
+        }
+        
+        $apiData = json_decode($apiResponse, true);
+        if (!$apiData) {
+            throw new Exception('Invalid JSON response from API');
+        }
+        
+        // Validate JSON structure and ensure list exists and dlink present
+        if (!isset($apiData['list']) || empty($apiData['list'])) {
+            throw new Exception('No file list found in API response');
+        }
+        
+        $file = $apiData['list'][0];
+        if (!isset($file['dlink']) || empty($file['dlink'])) {
+            throw new Exception('No dlink found in file data');
+        }
+        
+        // Return first file dlink and metadata (name, size, mime)
+        return [
+            'success' => true,
+            'url' => $file['dlink'],
+            'metadata' => [
+                'name' => $file['server_filename'] ?? 'video.mp4',
+                'size' => $file['size'] ?? 0,
+                'mime' => $file['mime_type'] ?? 'video/mp4'
+            ],
+            'thumbnail' => $file['thumbs']['url3'] ?? '',
+            'method' => 'direct_api'
         ];
-        
-        foreach ($tokenPatterns as $pattern) {
-            if (preg_match($pattern, $html, $matches)) {
-                $jsToken = $matches[1];
-                break;
-            }
-        }
-        
-        // Try multiple extraction patterns for logid
-        $logidPatterns = [
-            '/"logid":"([^"]+)"/',
-            "/'logid':'([^']+)'/",
-            '/logid["\']?\s*:\s*["\']([^"\']+)/',
-            '/window\.logid\s*=\s*["\']([^"\']+)/'
-        ];
-        
-        foreach ($logidPatterns as $pattern) {
-            if (preg_match($pattern, $html, $matches)) {
-                $logid = $matches[1];
-                break;
-            }
-        }
-        
-        // Try multiple extraction patterns for bdstoken
-        $bdstokenPatterns = [
-            '/"bdstoken":"([^"]+)"/',
-            "/'bdstoken':'([^']+)'/",
-            '/bdstoken["\']?\s*:\s*["\']([^"\']+)/',
-            '/window\.bdstoken\s*=\s*["\']([^"\']+)/'
-        ];
-        
-        foreach ($bdstokenPatterns as $pattern) {
-            if (preg_match($pattern, $html, $matches)) {
-                $bdstoken = $matches[1];
-                break;
-            }
-        }
-
-        // Step 5: Try window.__INIT_DATA__ extraction (most reliable method)
-        $initDataPatterns = [
-            '/<script>window\.__INIT_DATA__\s*=\s*({.*?})<\/script>/',
-            '/window\.__INIT_DATA__\s*=\s*({.*?});/',
-            '/__INIT_DATA__\s*=\s*({.*?})/'
-        ];
-        
-        foreach ($initDataPatterns as $pattern) {
-            if (preg_match($pattern, $html, $matches)) {
-                $data = json_decode($matches[1], true);
-                if ($data && isset($data['share_info']['file_list']) && !empty($data['share_info']['file_list'])) {
-                    $fileList = $data['share_info']['file_list'];
-                    $dlink = $fileList[0]['dlink'] ?? null;
-                    
-                    if ($dlink) {
-                        return [
-                            'success' => true,
-                            'url' => $dlink,
-                            'file_name' => $fileList[0]['server_filename'] ?? 'video.mp4',
-                            'thumbnail' => $fileList[0]['thumbs']['url3'] ?? '',
-                            'size' => $fileList[0]['size'] ?? 0,
-                            'method' => 'init_data'
-                        ];
-                    }
-                }
-                break;
-            }
-        }
-
-        // Step 6: If tokens found, make enhanced API call
-        if ($jsToken && $logid && $bdstoken) {
-            // Try multiple API endpoints
-            $apiEndpoints = [
-                "https://www.terabox.com/share/list",
-                "https://dm.terabox.app/share/list",
-                "https://terabox.com/share/list"
-            ];
-            
-            foreach ($apiEndpoints as $apiUrl) {
-                $params = [
-                    'app_id' => '250528',
-                    'jsToken' => $jsToken,
-                    'logid' => $logid,
-                    'bdstoken' => $bdstoken,
-                    'shorturl' => $surl,
-                    'root' => '1'
-                ];
-                
-                $ch = curl_init();
-                curl_setopt_array($ch, [
-                    CURLOPT_URL => $apiUrl . '?' . http_build_query($params),
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 15,
-                    CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    CURLOPT_SSL_VERIFYPEER => false,
-                    CURLOPT_HTTPHEADER => [
-                        'Accept: application/json, text/plain, */*',
-                        'Accept-Language: en-US,en;q=0.9',
-                        'Referer: https://www.terabox.com/sharing/link?surl=' . $surl,
-                        'DNT: 1',
-                        'Connection: keep-alive'
-                    ]
-                ]);
-                
-                $apiResponse = curl_exec($ch);
-                $apiHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-                
-                if ($apiHttpCode === 200 && $apiResponse) {
-                    $apiData = json_decode($apiResponse, true);
-                    if ($apiData && isset($apiData['list']) && !empty($apiData['list'])) {
-                        $file = $apiData['list'][0];
-                        if (isset($file['dlink']) && !empty($file['dlink'])) {
-                            return [
-                                'success' => true,
-                                'url' => $file['dlink'],
-                                'file_name' => $file['server_filename'] ?? 'video.mp4',
-                                'thumbnail' => $file['thumbs']['url3'] ?? '',
-                                'size' => $file['size'] ?? 0,
-                                'method' => 'api_with_tokens'
-                            ];
-                        }
-                    }
-                }
-            }
-        }
-
-        // Step 7: Enhanced fallback patterns with more comprehensive extraction
-        $enhancedPatterns = [
-            // Direct link patterns
-            '/"dlink":"(https?:\/\/[^"]+)"/',
-            '/"play_url":"(https?:\/\/[^"]+)"/',
-            '/"download_url":"(https?:\/\/[^"]+)"/',
-            '/"stream_url":"(https?:\/\/[^"]+)"/',
-            
-            // Video source patterns
-            '/sources:\s*\[\s*"(https?:\/\/[^"]+)"\s*\]/',
-            '/"video_url":"(https?:\/\/[^"]+)"/',
-            '/videoUrl["\']?\s*:\s*["\']([^"\']+)/',
-            '/src["\']?\s*:\s*["\']([^"\']+\.(?:mp4|webm|avi|mov|mkv)[^"\']*)/i',
-            '/"url":"(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
-            
-            // Terabox specific patterns
-            '/data-src="(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
-            '/href="(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
-            '/<source[^>]+src="([^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"[^>]*>/i',
-            
-            // JSON embedded patterns
-            '/file_url["\']?\s*:\s*["\']([^"\']+)/',
-            '/media_url["\']?\s*:\s*["\']([^"\']+)/',
-            '/direct_link["\']?\s*:\s*["\']([^"\']+)/'
-        ];
-        
-        foreach ($enhancedPatterns as $pattern) {
-            if (preg_match($pattern, $html, $matches)) {
-                $candidate = stripslashes($matches[1]);
-                
-                // Enhanced URL validation
-                if (filter_var($candidate, FILTER_VALIDATE_URL)) {
-                    // Check if it's a valid video URL
-                    $isVideoUrl = (
-                        strpos($candidate, '.mp4') !== false ||
-                        strpos($candidate, '.webm') !== false ||
-                        strpos($candidate, '.avi') !== false ||
-                        strpos($candidate, '.mov') !== false ||
-                        strpos($candidate, '.mkv') !== false ||
-                        strpos($candidate, 'video') !== false ||
-                        strpos($candidate, 'stream') !== false ||
-                        strpos($candidate, 'dlink') !== false ||
-                        strpos($candidate, 'download') !== false ||
-                        preg_match('/\.(mp4|webm|avi|mov|mkv)(\?|$)/i', $candidate)
-                    );
-                    
-                    if ($isVideoUrl) {
-                        return [
-                            'success' => true, 
-                            'url' => $candidate,
-                            'method' => 'regex_extraction'
-                        ];
-                    }
-                }
-            }
-        }
-
-        // Step 8: Look for JSON data in all script tags with enhanced parsing
-        if (preg_match_all('/<script[^>]*>(.*?)<\/script>/s', $html, $scriptMatches)) {
-            foreach ($scriptMatches[1] as $script) {
-                // Look for various JSON structures that might contain video URLs
-                $jsonPatterns = [
-                    '/"(?:dlink|play_url|video_url|downloadUrl|stream_url|file_url|media_url)":"(https?:\/\/[^"]+)"/',
-                    '/(?:dlink|play_url|video_url|downloadUrl|stream_url|file_url|media_url):\s*"(https?:\/\/[^"]+)"/',
-                    '/"url":"(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/',
-                    '/src:\s*"(https?:\/\/[^"]+\.(?:mp4|webm|avi|mov|mkv)[^"]*)"/'
-                ];
-                
-                foreach ($jsonPatterns as $pattern) {
-                    if (preg_match($pattern, $script, $matches)) {
-                        $candidate = stripslashes($matches[1]);
-                        if (filter_var($candidate, FILTER_VALIDATE_URL)) {
-                            return [
-                                'success' => true, 
-                                'url' => $candidate,
-                                'method' => 'script_extraction'
-                            ];
-                        }
-                    }
-                }
-            }
-        }
-
-        return ['success' => false, 'error' => 'No video URL found using any extraction method'];
 
     } catch (Exception $e) {
-        error_log('Enhanced Terabox Resolution Error: ' . $e->getMessage());
-        return ['success' => false, 'error' => $e->getMessage()];
+        error_log('Terabox Resolution Error: ' . $e->getMessage());
+        return [
+            'success' => false, 
+            'error' => $e->getMessage(),
+            'method' => 'direct_api'
+        ];
     }
+}
+
+// Health endpoint for monitoring
+if (isset($_GET['health'])) {
+    header('Content-Type: application/json');
+    
+    $health = [
+        'status' => 'healthy',
+        'timestamp' => time(),
+        'cache_dir' => is_dir($cacheDir) && is_writable($cacheDir),
+        'version' => '2.0.0'
+    ];
+    
+    // Check cache statistics
+    $cacheFiles = glob($cacheDir . '/*.json');
+    $health['cache_stats'] = [
+        'files_count' => count($cacheFiles),
+        'directory_writable' => is_writable($cacheDir)
+    ];
+    
+    echo json_encode($health);
+    exit;
 }
 
 /**
@@ -522,8 +441,8 @@ if (isset($_GET['download'])) {
     header('Access-Control-Allow-Headers: Content-Type, Range');
     
     $videoUrl = filter_input(INPUT_GET, 'url', FILTER_SANITIZE_URL);
-    if (!$videoUrl) {
-        header("HTTP/1.1 400 Bad Request");
+    if (!$videoUrl || !filter_var($videoUrl, FILTER_VALIDATE_URL)) {
+        http_response_code(400);
         header('Content-Type: application/json');
         echo json_encode(['error' => 'Invalid video URL']);
         exit;
@@ -556,8 +475,8 @@ if (isset($_GET['download'])) {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HEADER => true,
             CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_HTTPHEADER => $DL_HEADERS
         ]);
         
@@ -567,7 +486,7 @@ if (isset($_GET['download'])) {
         curl_close($ch);
         
         if ($httpCode !== 200) {
-            header("HTTP/1.1 404 Not Found");
+            http_response_code(404);
             header('Content-Type: application/json');
             echo json_encode(['error' => 'Video not found or not accessible']);
             exit;
@@ -578,56 +497,64 @@ if (isset($_GET['download'])) {
         $start = 0;
         $end = $contentLength - 1;
         
-        if ($range) {
+        if ($range && $contentLength > 0) {
             if (preg_match('/bytes=(\d+)-(\d*)/', $range, $matches)) {
                 $start = intval($matches[1]);
                 if (!empty($matches[2])) {
                     $end = intval($matches[2]);
                 }
+                $end = min($end, $contentLength - 1);
             }
         }
         
         // Set appropriate headers with CORS support
-        if ($range) {
-            header('HTTP/1.1 206 Partial Content');
+        if ($range && $contentLength > 0) {
+            http_response_code(206);
             header("Content-Range: bytes $start-$end/$contentLength");
+            header("Content-Length: " . ($end - $start + 1));
         } else {
-            header('HTTP/1.1 200 OK');
+            http_response_code(200);
+            if ($contentLength > 0) {
+                header("Content-Length: $contentLength");
+            }
         }
         
         header('Content-Type: video/mp4');
         header('Content-Disposition: attachment; filename="' . $filename . '"');
         header('Accept-Ranges: bytes');
-        header('Content-Length: ' . ($end - $start + 1));
         header('Cache-Control: no-cache, must-revalidate');
         header('Expires: 0');
         
-        // Stream the video with better error handling and range support
+        // Stream the video in chunks with Range support
         $ch = curl_init();
         curl_setopt_array($ch, [
             CURLOPT_URL => $videoUrl,
             CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_TIMEOUT => 0,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            CURLOPT_HTTPHEADER => array_merge($DL_HEADERS, 
+                $range && $contentLength > 0 ? ["Range: bytes=$start-$end"] : []
+            ),
             CURLOPT_WRITEFUNCTION => function($ch, $data) {
                 echo $data;
                 flush();
                 return strlen($data);
-            },
-            CURLOPT_TIMEOUT => 0,
-            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTPHEADER => array_merge($DL_HEADERS, $range ? ["Range: bytes=$start-$end"] : [])
+            }
         ]);
         
         curl_exec($ch);
         curl_close($ch);
         
     } catch (Exception $e) {
-        header("HTTP/1.1 500 Internal Server Error");
+        http_response_code(500);
+        header('Content-Type: application/json');
         echo json_encode(['error' => 'Download failed: ' . $e->getMessage()]);
     }
+    
     exit;
 }
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -904,8 +831,8 @@ if (isset($_GET['download'])) {
             overflow: hidden;
         }
         
-        /* Enhanced input with glassmorphism and animation states */
-        .input-glow { 
+        /* Enhanced input container with proper single border styling */
+        .input-container-wrapper {
             background: var(--glassmorphism-bg);
             backdrop-filter: blur(20px) saturate(150%);
             -webkit-backdrop-filter: blur(20px) saturate(150%);
@@ -913,47 +840,154 @@ if (isset($_GET['download'])) {
             transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
+            box-shadow: 0 10px 30px rgba(30,35,45,0.08);
+            max-width: 900px;
+            margin: 0 auto;
         }
         
-        .input-glow::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
+        .input-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            height: 56px;
+        }
+        
+        .input-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+        
+        .input-field {
+            border: none;
+            background: transparent;
             width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-            transition: left 0.6s ease;
-            z-index: 0;
+            line-height: 1.2;
+            font-size: 16px;
+            outline: none;
+            padding: 0;
         }
         
-        .input-glow:focus-within::before {
-            left: 100%;
+        .load-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 20px;
+            background: var(--primary-gradient);
+            color: white;
+            border: none;
+            border-radius: 9999px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 16px;
+            min-width: 48px;
+            height: 40px;
         }
         
-        .input-glow:focus-within { 
-            box-shadow: 
-                0 0 30px rgba(255, 60, 172, 0.2), 
-                0 0 60px rgba(255, 60, 172, 0.1),
-                0 0 0 1px rgba(255, 60, 172, 0.3);
+        .load-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px rgba(255, 60, 172, 0.3);
+        }
+        
+        /* Enhanced focus and validation states */
+        .input-container-wrapper:focus-within {
             border-color: var(--accent-color);
             transform: translateY(-2px);
             backdrop-filter: blur(25px) saturate(180%);
             -webkit-backdrop-filter: blur(25px) saturate(180%);
+            box-shadow: 
+                0 0 30px rgba(255, 60, 172, 0.2), 
+                0 0 60px rgba(255, 60, 172, 0.1),
+                0 0 0 1px rgba(255, 60, 172, 0.3);
         }
         
-        .input-glow.error {
+        .input-container-wrapper.error {
             border-color: #ef4444;
             box-shadow: 
                 0 0 20px rgba(239, 68, 68, 0.2),
                 0 0 40px rgba(239, 68, 68, 0.1);
         }
         
-        .input-glow.success {
+        .input-container-wrapper.success {
             border-color: #10b981;
             box-shadow: 
                 0 0 20px rgba(16, 185, 129, 0.2),
                 0 0 40px rgba(16, 185, 129, 0.1);
+        }
+        
+        /* Gen-Alpha header styling with micro-interactions */
+        .vibe-header {
+            border-radius: 12px;
+            background: var(--primary-gradient);
+            background-clip: text;
+            -webkit-background-clip: text;
+            padding: 18px 28px;
+            position: relative;
+            display: inline-block;
+            animation: headerEntrance 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+        
+        .vibe-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--primary-gradient);
+            border-radius: 12px;
+            opacity: 0.1;
+            z-index: -1;
+            transition: opacity 0.3s ease;
+        }
+        
+        .vibe-header:hover::before {
+            opacity: 0.2;
+        }
+        
+        @keyframes headerEntrance {
+            0% {
+                transform: translateY(-6px);
+                opacity: 0;
+            }
+            100% {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        /* Responsive improvements */
+        @media (max-width: 768px) {
+            .input-container-wrapper {
+                width: calc(100% - 48px);
+                margin: 0 auto;
+            }
+            
+            .input-icon {
+                width: 20px;
+                height: 20px;
+            }
+            
+            .load-button {
+                padding: 10px 16px;
+                min-width: 40px;
+                height: 36px;
+            }
+        }
+        
+        @media (max-width: 360px) {
+            .input-icon {
+                display: none;
+            }
+            
+            .input-container {
+                padding: 10px 12px;
+                gap: 6px;
+            }
         }
         
         /* Enhanced animated placeholder */
@@ -2075,7 +2109,10 @@ if (isset($_GET['download'])) {
     <div id="app-wrapper" class="w-full max-w-4xl lg:max-w-5xl 2xl:max-w-7xl mx-auto space-y-6">
         <!-- Header with enhanced gradient title and theme toggle -->
         <div class="text-center relative">
-            <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent" style="background-image: var(--primary-gradient);">Vibe Player</h1>
+            <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent vibe-header" 
+                style="background-image: var(--primary-gradient); font-family: Inter, Poppins, sans-serif; font-weight: 700; font-size: clamp(20px, 4vw, 48px); letter-spacing: 0.5px;">
+                Vibe Player
+            </h1>
             <p class="mt-2" style="color: var(--text-muted-color);">The Ultimate Hub for Seamless Streaming.</p>
             <button id="theme-toggle" class="absolute top-0 right-0 p-3 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)] glassmorphism theme-toggle-btn" aria-label="Toggle theme">
                 <i class="fas fa-sun text-xl theme-icon"></i>
@@ -2090,16 +2127,19 @@ if (isset($_GET['download'])) {
         </div>
         
         <!-- Enhanced URL Input Section with glassmorphism -->
-        <div class="relative input-glow rounded-full glassmorphism">
-            <span id="url-status-icon" class="absolute inset-y-0 left-0 flex items-center pl-4">
-                <i class="fas fa-link" style="color: var(--text-muted-color);"></i>
-            </span>
-            <input id="videoUrl" type="text" placeholder="Paste a direct video link or Terabox link here..." 
-                   class="w-full bg-transparent border-0 rounded-full py-3 pl-12 pr-4 focus:outline-none" 
-                   style="color: var(--text-color);">
-            <button id="loadVideoBtn" class="absolute inset-y-0 right-0 flex items-center px-6 text-white rounded-r-full" aria-label="Load Video">
-                <i class="fas fa-play"></i>
-            </button>
+        <div class="relative input-container-wrapper rounded-full glassmorphism">
+            <div class="input-container">
+                <span id="url-status-icon" class="input-icon">
+                    <i class="fas fa-link" style="color: var(--text-muted-color);"></i>
+                </span>
+                <input id="videoUrl" type="text" placeholder="Paste a direct video link or Terabox link here..." 
+                       class="input-field" 
+                       style="color: var(--text-color);"
+                       aria-label="Video URL input">
+                <button id="loadVideoBtn" class="load-button" aria-label="Load Video">
+                    <i class="fas fa-play"></i>
+                </button>
+            </div>
         </div>
         
         <!-- Enhanced Info Box with glassmorphism -->
@@ -2531,8 +2571,8 @@ if (isset($_GET['download'])) {
                  */
                 setUrlStatus(status) {
                     const iconEl = document.getElementById('url-status-icon');
-                    const inputContainer = iconEl.closest('.input-glow');
-                    if (!iconEl) return;
+                    const inputContainer = document.querySelector('.input-container-wrapper');
+                    if (!iconEl || !inputContainer) return;
                     
                     // Remove existing status classes
                     inputContainer.classList.remove('error', 'success', 'loading');
