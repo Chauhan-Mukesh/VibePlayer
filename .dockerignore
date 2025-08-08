@@ -1,0 +1,50 @@
+# Git and version control
+.git
+.gitignore
+.github
+
+# Development files
+*.log
+*.tmp
+logs/
+tmp/
+
+# Documentation (except core files)
+*.md
+!README.md
+!LICENSE-README.md
+
+# Environment files
+.env
+.env.*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing and development
+test/
+tests/
+spec/
+coverage/
+
+# Build artifacts
+node_modules/
+dist/
+build/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker related
+docker-compose.override.yml
+docker-compose.dev.yml
