@@ -27,6 +27,8 @@ services:
       # Application settings
       - APP_ENV=${APP_ENV:-production}
       - CACHE_TTL=${CACHE_TTL:-900}
+      # Apify Integration (optional)
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN:-}
     volumes:
       # Development: Mount source code for hot reload (comment out for production)
       # - ./:/var/www/html:rw,delegated

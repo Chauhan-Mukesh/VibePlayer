@@ -1,10 +1,20 @@
 <?php
 /**
- * VibePlayer - Advanced Terabox Link Resolver
+ * VibePlayer - Advanced Terabox Link Resolver with Apify Fallback
  * 
  * This script provides multiple fallback methods for resolving Terabox links
  * to direct video URLs without requiring user login.
- * Enhanced with security, caching, and streaming support.
+ * Enhanced with security, caching, streaming support, and Apify integration.
+ * 
+ * APIFY CONFIGURATION:
+ * To enable the Apify TeraBox Video/File Downloader fallback:
+ * 1. Sign up at https://apify.com/ (free trial available)
+ * 2. Go to Integrations → API tokens and copy your token
+ * 3. Set environment variable: APIFY_API_TOKEN=your_token_here
+ * 4. The Apify fallback will automatically activate when direct resolution fails
+ * 
+ * Environment Variables:
+ * - APIFY_API_TOKEN: Your Apify API token for TeraBox resolution fallback
  */
 
 // Security and rate limiting configuration
@@ -232,6 +242,7 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
     // Enhanced direct resolution with retry mechanism
     $maxRetries = 3;
     $retryDelay = 1; // Start with 1 second
+    $errors = [];
     
     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
         try {
@@ -262,16 +273,135 @@ if (isset($_GET['resolve']) || ($_SERVER['REQUEST_METHOD'] === 'POST' && strpos(
         }
     }
     
-    // If all attempts failed, return comprehensive error
+    // If direct method failed, try Apify fallback
+    error_log('Direct TeraBox resolution failed, attempting Apify fallback for: ' . $url);
+    
+    try {
+        $apifyResult = resolveTeraboxWithApify($url);
+        if ($apifyResult['success']) {
+            // Cache successful Apify result
+            file_put_contents($cacheFile, json_encode($apifyResult));
+            $apifyResult['cache_hit'] = false;
+            echo json_encode($apifyResult);
+            exit;
+        } else {
+            $errors[] = "Apify fallback: " . ($apifyResult['error'] ?? 'Unknown Apify error');
+        }
+    } catch (Exception $e) {
+        $errors[] = "Apify fallback failed: " . $e->getMessage();
+    }
+    
+    // If all methods failed, return comprehensive error
     http_response_code(502);
     echo json_encode([
         'success' => false, 
         'error' => 'resolution_failed',
-        'message' => 'Failed to resolve Terabox link after multiple attempts',
+        'message' => 'Failed to resolve Terabox link with all methods (direct + Apify fallback)',
         'details' => $errors,
-        'retry_after' => 30
+        'retry_after' => 30,
+        'methods_attempted' => ['direct_api', 'apify_fallback']
     ]);
     exit;
+}
+
+/**
+ * Apify TeraBox Video/File Downloader fallback resolver
+ * Uses Apify's easyapi~terabox-video-file-downloader actor as a reliable fallback
+ * when direct resolution methods fail.
+ */
+function resolveTeraboxWithApify($url) {
+    try {
+        // Get Apify API token from environment variable or configuration
+        $apiToken = $_ENV['APIFY_API_TOKEN'] ?? getenv('APIFY_API_TOKEN') ?? '';
+        
+        if (empty($apiToken)) {
+            throw new Exception('Apify API token not configured. Set APIFY_API_TOKEN environment variable.');
+        }
+        
+        error_log('Attempting Apify TeraBox resolution for: ' . $url);
+        
+        // Prepare actor input as specified in the requirements
+        $input = [
+            'links' => [$url]
+        ];
+        $inputJson = json_encode($input);
+        
+        // Call Apify Actor via run-sync-get-dataset-items endpoint
+        $apiUrl = 'https://api.apify.com/v2/acts/easyapi~terabox-video-file-downloader/run-sync-get-dataset-items?token=' . urlencode($apiToken);
+        
+        $ch = curl_init($apiUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $inputJson,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 60, // Apify can take some time
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Accept: application/json',
+                'User-Agent: VibePlayer/2.0.0 (Apify Integration)'
+            ]
+        ]);
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+        
+        // Validate response
+        if ($curlError) {
+            throw new Exception('Apify API cURL Error: ' . $curlError);
+        }
+        
+        if ($httpCode !== 200) {
+            throw new Exception('Apify API returned HTTP ' . $httpCode);
+        }
+        
+        if (!$response) {
+            throw new Exception('Empty response from Apify API');
+        }
+        
+        $data = json_decode($response, true);
+        if (!$data) {
+            throw new Exception('Invalid JSON response from Apify API: ' . $response);
+        }
+        
+        // Parse Apify response as specified
+        if (!isset($data[0]['downloadLink']) || empty($data[0]['downloadLink'])) {
+            throw new Exception('No downloadLink found in Apify response');
+        }
+        
+        $downloadLink = $data[0]['downloadLink'];
+        
+        // Validate the download link
+        if (!filter_var($downloadLink, FILTER_VALIDATE_URL)) {
+            throw new Exception('Invalid download URL returned by Apify: ' . $downloadLink);
+        }
+        
+        error_log('Apify resolution successful: ' . $downloadLink);
+        
+        // Return successful result in the same format as direct resolution
+        return [
+            'success' => true,
+            'url' => $downloadLink,
+            'metadata' => [
+                'name' => $data[0]['fileName'] ?? 'video.mp4',
+                'size' => $data[0]['fileSize'] ?? 0,
+                'mime' => 'video/mp4' // Assume video content from TeraBox
+            ],
+            'thumbnail' => '', // Apify doesn't provide thumbnails
+            'method' => 'apify_fallback',
+            'originalUrl' => $data[0]['originalUrl'] ?? $url
+        ];
+        
+    } catch (Exception $e) {
+        error_log('Apify TeraBox Resolution Error: ' . $e->getMessage());
+        return [
+            'success' => false,
+            'error' => $e->getMessage(),
+            'method' => 'apify_fallback'
+        ];
+    }
 }
 
 /**
@@ -401,6 +531,14 @@ if (isset($_GET['health'])) {
     $health['cache_stats'] = [
         'files_count' => count($cacheFiles),
         'directory_writable' => is_writable($cacheDir)
+    ];
+    
+    // Check Apify configuration
+    $apifyToken = $_ENV['APIFY_API_TOKEN'] ?? getenv('APIFY_API_TOKEN') ?? '';
+    $health['apify_integration'] = [
+        'configured' => !empty($apifyToken),
+        'token_length' => !empty($apifyToken) ? strlen($apifyToken) : 0,
+        'status' => !empty($apifyToken) ? 'ready' : 'not_configured'
     ];
     
     echo json_encode($health);
