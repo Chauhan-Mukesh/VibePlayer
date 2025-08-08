@@ -1,492 +1,611 @@
-# 🎬 Vibe Player
+# Vibe Player
+**The Ultimate Open Source Streaming Hub**
 
+*An advanced single-page PHP application that resolves Terabox share URLs to CDN direct links and streams video via server-side proxy with a custom Gen-Alpha themed UI and embedded video player.*
+
+## Status & Badges
+
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Chauhan-Mukesh/VibePlayer/ci.yml?branch=main)](https://github.com/Chauhan-Mukesh/VibePlayer/actions)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![PHP Version](https://img.shields.io/badge/PHP-8.0%2B-777BB4.svg)](https://php.net/)
-[![JavaScript](https://img.shields.io/badge/JavaScript-ES6%2B-F7DF1E.svg)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
-[![HTML5](https://img.shields.io/badge/HTML5-Video-E34F26.svg)](https://developer.mozilla.org/en-US/docs/Web/Guide/HTML/HTML5)
+[![Docker Pulls](https://img.shields.io/docker/pulls/vibeplayer/vibeplayer)](https://hub.docker.com/r/vibeplayer/vibeplayer)
+[![PHP Version](https://img.shields.io/badge/PHP-8.2+-777BB4.svg)](https://php.net/)
 
-> **The Ultimate Open Source Streaming Hub** - A powerful, feature-rich video player that seamlessly resolves Terabox links and streams any direct video content without requiring user authentication.
+## Table of Contents
 
-![Vibe Player Light Mode](https://github.com/user-attachments/assets/e62e8d2c-d484-4492-a4d1-7a42963f5044)
+- [Overview](#overview)
+- [Features](#features)
+- [Demo](#demo)
+- [Quick Start](#quick-start)
+- [Docker](#docker)
+- [Usage](#usage)
+- [Backend Details](#backend--architecture)
+- [API/Endpoints](#apiendpoints)
+- [Developer Setup](#development)
+- [Security](#security--privacy)
+- [Performance & Testing](#performance--scaling)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgements](#acknowledgements)
 
-## ✨ Key Features
+## Overview
 
-### 🎯 **Core Functionality**
-- **🔗 Terabox Link Resolution** - Automatically resolves Terabox links without login
-- **📺 Direct Video Streaming** - Play any direct video link instantly
-- **🌐 Multiple Format Support** - MP4, WebM, AVI, MOV, MKV and more
-- **⚡ Fast Resolution** - Multiple fallback methods for maximum reliability
+Vibe Player is a sophisticated single-page PHP application designed to seamlessly resolve Terabox share URLs to direct CDN links and stream video content through a server-side proxy. The application features a custom Gen-Alpha themed user interface with an embedded HTML5 video player that supports advanced playback controls, keyboard shortcuts, and multiple viewing modes.
 
-### 🎨 **Modern Interface**
-- **🌙 Light & Dark Themes** - Seamless theme switching with system preference detection
-- **📱 Mobile Responsive** - Optimized for all screen sizes and devices  
-- **🎯 Self-Contained** - Works even when external CDNs are blocked
-- **♿ Accessibility** - Full keyboard navigation and screen reader support
+**Key Architecture:**
+- **Frontend**: Single-page application with vanilla JavaScript and custom CSS utilities
+- **Backend**: PHP 8.2+ with cURL-based resolution engine
+- **Streaming**: Server-side Range-enabled proxy for seamless video delivery
+- **UI Theme**: Gen-Alpha design with glassmorphism effects and smooth animations
 
-### ⌨️ **Advanced Controls**
-- **Keyboard Shortcuts** - Complete keyboard control for power users
-  - `Space` - Play/Pause
-  - `←/→` - Seek backward/forward (5s)
-  - `↑/↓` - Volume up/down
-  - `F` - Toggle fullscreen
-  - `M` - Toggle mute
-  - `T` - Toggle theater mode
-- **Custom Player Controls** - Professional-grade video interface
-- **Speed Control** - Playback speed from 0.5x to 2x
-- **Loop Functionality** - Continuous playback support
+## Features
 
-### 🎭 **Viewing Modes**
-- **🎪 Theater Mode** - Distraction-free viewing experience
-- **📺 Picture-in-Picture** - Multitask while watching
-- **🖥️ Fullscreen** - Immersive full-screen experience
-- **🔄 Responsive Design** - Adapts to any screen size
+### Core Functionality
+- **🔗 Public Terabox Link Resolver** - Automatically extracts direct video URLs from Terabox sharing links
+- **🎥 Server-side Range-enabled Streaming** - Efficient chunked video delivery with seek support
+- **⬇️ Fallback Direct Download** - Alternative download method when streaming fails
+- **⚡ Caching of Resolved Links** - 15-minute TTL cache for improved performance
+- **🌙 Dark/Light Theme** - Automatic system preference detection with manual toggle
+- **🎮 YouTube-like Player Controls** - Professional video interface with advanced features
+- **⌨️ Keyboard Shortcuts** - Complete keyboard navigation support
+- **🎨 Plugin-ready CSS** - Modular CSS architecture for easy customization
+- **📦 Minimal Dependencies** - Self-contained with no external CDN requirements
 
-### 🛠️ **Advanced Features**
-- **📥 Video Download** - Download videos with progress tracking
-- **📜 Playback History** - Keep track of recently played videos
-- **⚙️ Settings Persistence** - Save preferences locally
-- **🌐 CORS Proxy Support** - Bypass streaming restrictions
-- **🔄 Multiple Resolution Methods** - Server-side and client-side fallbacks
-- **📊 Real-time Feedback** - Toast notifications for all operations
+### Advanced Features
+- Picture-in-Picture mode support
+- Theater mode for distraction-free viewing
+- Custom context menus and tooltips
+- Playback speed control (0.5x to 2x)
+- Volume control with visual feedback
+- Progress bar with thumbnail previews
+- Playlist and history management
+- CORS proxy configuration
 
-## 📸 Screenshots
+## Demo / Screenshots
 
-### Light Mode
-![Light Mode Interface](https://github.com/user-attachments/assets/e62e8d2c-d484-4492-a4d1-7a42963f5044)
+### Light Mode Interface
+![Vibe Player Light Mode](https://github.com/user-attachments/assets/7d78b7ca-924a-44ab-be44-3289131590ec)
 
-### Dark Mode
-![Dark Mode Interface](https://github.com/user-attachments/assets/af7ca5c6-2817-437b-a4c6-37fd4f3e0632)
+### Dark Mode Interface
+*Screenshot placeholder - capture after theme toggle*
 
-## 🚀 Quick Start
+**Live Demo**: [GitHub Pages Demo](https://chauhan-mukesh.github.io/VibePlayer/) *(if available)*
 
-### Prerequisites
-- PHP 8.0 or higher
-- Modern web browser (Chrome 60+, Firefox 55+, Safari 11+, Edge 79+)
-- Web server (Apache, Nginx, or PHP built-in server)
+**Demo Usage**:
+1. Paste any Terabox sharing link in the input field
+2. Click the play button or press Enter
+3. Video will auto-resolve and begin playback
+4. Use keyboard shortcuts for navigation (Space, ←/→, F, M, T)
 
-### Installation
+## Quick Start
 
-1. **Clone the Repository**
+### Requirements
+- **Docker & Docker Compose** (recommended)
+- **OR** PHP 8.2+ CLI for development
+
+### Minimal Setup
+
+1. **Clone Repository**
    ```bash
    git clone https://github.com/Chauhan-Mukesh/VibePlayer.git
    cd VibePlayer
    ```
 
-2. **Start PHP Development Server**
+2. **Docker Compose (Recommended)**
    ```bash
-   php -S localhost:8000 index.php
+   docker compose up --build -d
    ```
 
-3. **Open in Browser**
+3. **Open Application**
    ```
    http://localhost:8000
    ```
 
-### Docker Setup (Optional)
-
+### Native PHP Development
 ```bash
-# Build Docker image
-docker build -t vibeplayer .
-
-# Run container
-docker run -p 8000:8000 vibeplayer
+# For development only
+php -S 0.0.0.0:8000 index.php
 ```
 
-### Web Server Configuration
+## Docker
 
-#### Apache (.htaccess)
-```apache
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php [QSA,L]
+### Container Architecture
+The Docker setup uses **php:8.2-apache** for production deployment with:
+- Apache mod_rewrite for clean URL routing
+- Range header support for video seeking
+- Optimized PHP configuration for streaming
+- Health checks and monitoring
+- Multi-stage builds for minimal image size
+
+### Production Deployment
+```bash
+# Build production image
+docker build -t vibeplayer:latest .
+
+# Run with custom configuration
+docker run -d \
+  -p 80:80 \
+  -e PHP_MEMORY_LIMIT=512M \
+  -e PHP_MAX_EXECUTION_TIME=300 \
+  --name vibeplayer \
+  vibeplayer:latest
 ```
 
-#### Nginx
-```nginx
-location / {
-    try_files $uri $uri/ /index.php?$query_string;
-}
+### Development with Hot Reload
+```bash
+# Docker Compose development
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-## 📖 Usage Guide
+### Container Management
+```bash
+# View logs
+docker compose logs -f vibeplayer
+
+# Shell access
+docker compose exec vibeplayer bash
+
+# Stop services
+docker compose down
+```
+
+## Usage
 
 ### Basic Video Playback
 
-1. **Paste URL** - Enter any direct video link or Terabox link
-2. **Auto-Resolution** - Terabox links are automatically resolved
-3. **Enjoy** - Use controls or keyboard shortcuts to manage playback
+1. **Paste Terabox Link** - Enter any Terabox sharing URL in the input field
+2. **Automatic Resolution** - The system automatically extracts the direct video URL
+3. **Stream or Download** - Choose between in-browser streaming or direct download
 
-### Supported Link Types
+### Video vs Non-Video Content
+- **Video Content**: Displays embedded player with full controls
+- **Non-Video Content**: Provides direct download link
+- **Mixed Content**: Prioritizes video files, lists other files
 
-#### Terabox Links ✅
-```
-https://1024terabox.com/s/your-link-here
-https://terabox.com/s/your-link-here
-https://www.terabox.com/s/your-link-here
-```
+### User Interface
+- **Player Controls**: Play/pause, seek, volume, fullscreen, quality selection
+- **Progress Bar**: Click to seek, hover for thumbnail previews
+- **Settings Menu**: Speed control, loop toggle, proxy configuration
+- **History Tab**: Recent playback history with quick access
 
-#### Direct Video Links ✅
-```
-https://example.com/video.mp4
-https://cdn.example.com/videos/movie.webm
-https://storage.example.com/content.avi
-```
-
-#### Streaming URLs ✅
-```
-https://stream.example.com/playlist.m3u8
-https://live.example.com/stream/video.mp4
-```
-
-### Advanced Settings
-
-#### CORS Proxy Configuration
-For restricted content, configure custom CORS proxies:
-
-1. Open **Settings** → **CORS Proxy URL**
-2. Enter your proxy URL: `https://your-proxy.com/`
-3. The proxy will be applied to all video requests
-
-#### Playback Settings
-- **Loop Video** - Enable continuous playback
-- **Playback Speed** - Adjust from 0.5x to 2x speed
-- **Volume Control** - Fine-tune audio levels
-- **Quality Selection** - Automatic quality adaptation
-
-## ⌨️ Keyboard Shortcuts
-
-| Shortcut | Action | Description |
-|----------|--------|-------------|
+### Keyboard Shortcuts
+| Key | Action | Description |
+|-----|--------|-------------|
 | `Space` | Play/Pause | Toggle video playback |
-| `←` | Seek Backward | Jump back 5 seconds |
-| `→` | Seek Forward | Jump forward 5 seconds |
-| `↑` | Volume Up | Increase volume by 10% |
-| `↓` | Volume Down | Decrease volume by 10% |
+| `←` / `→` | Seek | Navigate backward/forward 10 seconds |
+| `↑` / `↓` | Volume | Adjust volume up/down |
 | `F` | Fullscreen | Toggle fullscreen mode |
 | `M` | Mute | Toggle audio mute |
-| `T` | Theater Mode | Toggle theater view |
+| `T` | Theater | Toggle theater mode |
+| `P` | PiP | Picture-in-Picture mode |
 
-## 🔧 API Endpoints
+## Backend & Architecture
 
-### Terabox Resolution API
+### Resolver Endpoint (`/resolver`)
+The core resolution engine processes Terabox URLs through multiple methods:
+
+```php
+GET /?resolve&url={encoded_terabox_url}
+POST / (JSON: {"url": "terabox_url"})
+```
+
+**Resolution Pipeline**:
+1. **URL Validation** - SSRF protection and domain whitelist verification
+2. **Cache Check** - 15-minute TTL cache lookup
+3. **Direct API Method** - Primary Terabox API integration
+4. **Proxy Fallback** - Multiple CORS proxy attempts
+5. **Response Caching** - Successful results cached for performance
+
+### Streaming Proxy (`/stream.php`)
+Server-side streaming proxy with Range header support:
+
+```php
+GET /?stream&url={direct_video_url}
+```
+
+**Features**:
+- HTTP Range request handling for video seeking
+- Chunked transfer encoding for efficient streaming
+- Bandwidth throttling and connection management
+- Error handling and retry mechanisms
+
+### Caching Strategy
+- **Cache Directory**: `sys_get_temp_dir() + '/vibeplayercache'`
+- **Cache TTL**: 900 seconds (15 minutes)
+- **Cache Keys**: MD5 hash of original URL
+- **Cleanup**: Automatic expiration and size management
+
+### SSRF Protection
+- **Domain Whitelist**: Only approved Terabox domains
+- **IP Validation**: Blocks private IP ranges
+- **DNS Resolution**: Prevents hostname manipulation
+- **Rate Limiting**: 10 requests per minute per IP
+
+### Required PHP Settings
+```ini
+memory_limit = 256M
+max_execution_time = 300
+post_max_size = 512M
+upload_max_filesize = 512M
+allow_url_fopen = On
+```
+
+### Production Recommendations
+- **Reverse Proxy**: Nginx + php-fpm for better performance
+- **CDN Integration**: CloudFlare or similar for global delivery
+- **Monitoring**: Health check endpoint at `/?health`
+- **Logging**: Configurable error logging and access logs
+
+## API/Endpoints
+
+### Health Check
 ```http
-GET /?resolve&url={terabox_url}
+GET /?health
+```
+**Response**:
+```json
+{
+  "status": "healthy",
+  "timestamp": 1703875200,
+  "cache_dir": true,
+  "version": "2.0.0",
+  "cache_stats": {
+    "files_count": 42,
+    "directory_writable": true
+  }
+}
 ```
 
-**Request Example:**
-```bash
-curl "http://localhost:8000/?resolve&url=https%3A%2F%2F1024terabox.com%2Fs%2Fyour-link"
+### Terabox Resolution
+```http
+GET /?resolve&url={url}
+POST / 
+Content-Type: application/json
+{"url": "https://terabox.com/s/example"}
 ```
 
-**Response Format:**
+**Success Response**:
 ```json
 {
   "success": true,
-  "url": "https://direct-video-url.mp4"
+  "url": "https://direct-cdn-url.mp4",
+  "metadata": {
+    "name": "video.mp4",
+    "size": 104857600,
+    "mime": "video/mp4"
+  },
+  "thumbnail": "https://thumbnail-url.jpg",
+  "method": "direct_api",
+  "cache_hit": false
 }
 ```
 
-**Error Response:**
+**Error Response**:
 ```json
 {
   "success": false,
-  "message": "Resolution failed",
-  "errors": [
-    "Direct method: No video URL found",
-    "Proxy errors..."
-  ]
+  "error": "resolution_failed",
+  "message": "Failed to resolve Terabox link",
+  "details": ["API timeout", "Proxy failed"],
+  "retry_after": 30
 }
 ```
 
-### Video Download API
+### Video Streaming
+```http
+GET /?stream&url={video_url}
+Range: bytes=0-1023
+```
+
+**Response Headers**:
+```
+Content-Type: video/mp4
+Accept-Ranges: bytes
+Content-Range: bytes 0-1023/104857600
+Content-Length: 1024
+```
+
+### Video Download
 ```http
 GET /?download&url={video_url}
 ```
+**Features**: Range request support, resumable downloads, progress tracking
 
-**Features:**
-- Resumable downloads with range requests
-- Progress tracking support
-- Automatic filename detection
-- Error handling and validation
-
-## 🏗️ Architecture
-
-### Resolution Methods
-
-#### 1. Direct Server-Side Resolution
-- Direct HTML scraping with enhanced patterns
-- Multiple regex patterns for video URL extraction
-- Advanced User-Agent simulation
-- JSON data extraction from script tags
-
-#### 2. Proxy-Based Resolution
-- Multiple CORS proxy fallbacks
-- Automatic proxy rotation on failure
-- Enhanced error handling and reporting
-- Network timeout management
-
-#### 3. Client-Side Fallback
-- Browser-based resolution when server fails
-- CORS proxy utilization
-- Real-time error feedback
-- Seamless fallback integration
-
-### Technology Stack
-
-- **Backend:** PHP 8.0+ with cURL
-- **Frontend:** Vanilla JavaScript ES6+
-- **Styling:** Self-contained CSS with utility classes
-- **Icons:** FontAwesome with emoji fallbacks
-- **Video:** HTML5 Video API with custom controls
-
-## 🛡️ Security & Privacy
+## Security & Privacy
 
 ### Data Protection
-- **No Data Collection** - Zero personal data storage
-- **Local Storage Only** - Settings stored in browser
-- **No External Tracking** - No analytics or tracking scripts
-- **Open Source** - Full transparency with GPL-3.0 license
+- **Zero Data Collection** - No personal information stored
+- **Local Storage Only** - Settings stored in browser localStorage
+- **No External Tracking** - No analytics, ads, or tracking scripts
+- **Open Source Transparency** - Full source code available under GPL-3.0
 
 ### Security Measures
-- Input validation and sanitization
-- CORS protection with configurable proxies
-- Secure cURL configurations
-- XSS protection in all user inputs
+- **Input Validation** - All user inputs sanitized and validated
+- **SSRF Prevention** - Strict domain whitelisting and IP validation
+- **Rate Limiting** - 10 requests per minute per IP address
+- **CORS Protection** - Configurable CORS proxy support
+- **XSS Protection** - HTML escaping and Content Security Policy
+- **Secure Headers** - X-Frame-Options, X-Content-Type-Options, etc.
 
-## 🌐 Browser Compatibility
+### Privacy Features
+- **No User Credentials** - No login or account system required
+- **Minimal Metadata Logging** - Only essential error information logged
+- **Cache Encryption** - Cached data protected with secure file permissions
+- **Session-less Operation** - Stateless design with no session tracking
 
-| Browser | Version | Support Level |
-|---------|---------|---------------|
-| Chrome | 60+ | ✅ Full Support |
-| Firefox | 55+ | ✅ Full Support |
-| Safari | 11+ | ✅ Full Support |
-| Edge | 79+ | ✅ Full Support |
-| Mobile Safari | 11+ | ✅ Full Support |
-| Chrome Mobile | 60+ | ✅ Full Support |
-| Opera | 47+ | ✅ Full Support |
+## Performance & Scaling
 
-### Feature Support
-- **HTML5 Video** - Full support across all browsers
-- **Fullscreen API** - Supported in modern browsers
-- **Picture-in-Picture** - Chrome 70+, Safari 13.1+
-- **Keyboard Events** - Universal support
-- **Local Storage** - Universal support
+### Caching Strategy
+- **Memory Caching** - In-memory cache for frequently accessed data
+- **File System Cache** - Persistent cache for resolved URLs
+- **Browser Caching** - Static assets cached with appropriate headers
+- **CDN Integration** - Support for content delivery networks
 
-## 🧪 Development
+### Streaming Optimization
+- **Chunked Transfer** - Efficient large file streaming
+- **Range Request Support** - Enables video seeking and partial downloads
+- **Connection Pooling** - Reused connections for better performance
+- **Bandwidth Management** - Configurable streaming rates
 
-### Project Structure
-```
-VibePlayer/
-├── index.php              # Main application file
-├── README.md              # Project documentation
-├── LICENSE               # GPL-3.0 license
-├── .gitignore           # Git ignore rules
-└── screenshots/         # UI screenshots
-```
+### Scaling Recommendations
+- **Load Balancing** - Multiple PHP-FPM workers behind Nginx
+- **Database Integration** - Optional Redis/MySQL for larger deployments
+- **Container Orchestration** - Kubernetes deployment configurations
+- **Monitoring Integration** - Prometheus metrics and Grafana dashboards
 
-### Code Architecture
-```php
-// PHP Backend
-├── Terabox Resolution Logic
-├── CORS Proxy Handling
-├── Video Download API
-└── Error Management
-
-// JavaScript Frontend
-├── Player Module
-├── UI Management
-├── Theme System
-├── Settings Persistence
-└── Keyboard Controls
-```
-
-### Development Setup
-
+### Performance Tuning
 ```bash
-# Clone repository
+# Nginx + PHP-FPM Configuration
+sudo apt install nginx php8.2-fpm
+sudo systemctl enable nginx php8.2-fpm
+
+# Optimize PHP-FPM
+pm = dynamic
+pm.max_children = 50
+pm.start_servers = 5
+pm.min_spare_servers = 5
+pm.max_spare_servers = 35
+```
+
+## Development
+
+### Local Development Setup
+```bash
+# Clone and setup
 git clone https://github.com/Chauhan-Mukesh/VibePlayer.git
 cd VibePlayer
+
+# Install dependencies (if any)
+composer install  # If composer.json exists
 
 # Start development server
 php -S localhost:8000 index.php
 
-# Open in browser
-open http://localhost:8000
+# Or use Docker for development
+docker compose -f docker-compose.dev.yml up
 ```
 
-### Code Style Guidelines
+### Code Architecture
+```
+index.php                 # Main application file
+├── PHP Backend          # Server-side logic
+│   ├── Resolution Engine
+│   ├── Streaming Proxy
+│   ├── API Endpoints
+│   └── Caching System
+├── HTML Structure       # Semantic markup
+├── CSS Styling         # Custom utility classes
+└── JavaScript Frontend # ES6+ modules
+    ├── Player Module
+    ├── Theme System
+    ├── UI Components
+    └── API Client
+```
 
-- **PHP**: PSR-12 coding standard
-- **JavaScript**: ES6+ with modern features
-- **HTML/CSS**: Semantic markup with utility classes
-- **Comments**: Comprehensive documentation
+### Development Workflow
+1. **Code Changes** - Edit index.php directly
+2. **Testing** - Manual testing via browser
+3. **Linting** - PSR-12 for PHP, ESLint for JavaScript
+4. **Building** - No build step required (single file)
+5. **Deployment** - Docker build and push
 
-### Testing
-
-#### Manual Testing
+### Testing Guidelines
 ```bash
-# Test Terabox resolution
-curl "http://localhost:8000/?resolve&url=https%3A%2F%2F1024terabox.com%2Fs%2Ftest"
+# Manual API testing
+curl "http://localhost:8000/?health"
+curl "http://localhost:8000/?resolve&url=https%3A//terabox.com/s/test"
 
-# Test video download
-curl "http://localhost:8000/?download&url=https%3A%2F%2Fexample.com%2Fvideo.mp4"
+# UI testing checklist
+- [ ] Theme toggle functionality
+- [ ] Video playback controls
+- [ ] Keyboard shortcuts
+- [ ] Mobile responsiveness
+- [ ] Error handling
 ```
 
-#### UI Testing
-- Theme switching functionality
-- Keyboard shortcut responsiveness
-- Settings persistence
-- Mobile responsiveness
-- Player control functionality
+### Linting and Code Quality
+```bash
+# PHP linting (if tools available)
+php -l index.php
+phpcs --standard=PSR12 index.php
 
-## 🤝 Contributing
+# JavaScript linting (if tools available)
+eslint --init
+```
 
-We welcome contributions! Here's how to get started:
-
-### Getting Started
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
-### Contribution Guidelines
-- Follow existing code style and conventions
-- Add comprehensive comments for new functionality
-- Test thoroughly across different browsers
-- Update documentation for new features
-- Ensure mobile responsiveness
-
-### Areas for Contribution
-- 🎵 Audio-only playback mode
-- 📱 Mobile app development
-- 🌍 Internationalization (i18n)
-- 🎨 Custom theme creation
-- 📊 Analytics dashboard
-- 🔐 User account system
-- 📺 Chromecast support
-
-## 🆘 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
-#### Video Won't Load
+#### Video Loading Failures
 ```
-Solution Steps:
-1. Verify the URL is a direct video link
-2. Check if Terabox link is valid and accessible
-3. Try using a custom CORS proxy in settings
-4. Ensure the video format is supported (MP4, WebM, etc.)
-5. Check browser console for detailed error messages
+Symptoms: Video won't load, shows error message
+Solutions:
+1. Verify URL is a valid Terabox link
+2. Check browser console for detailed errors  
+3. Try enabling CORS proxy in settings
+4. Ensure video format is supported (MP4, WebM)
+5. Test with different Terabox link
 ```
 
-#### Terabox Links Not Working
+#### Terabox Resolution Errors
 ```
-Possible Causes:
-- Link may require login (not supported)
+Symptoms: "Failed to resolve Terabox link"
+Causes:
+- Link requires login (not supported)
 - Temporary server issues
 - Rate limiting by Terabox
-- Network restrictions
+- Network connectivity problems
 
 Solutions:
-- Try a different Terabox link
-- Wait and retry later
-- Check browser console for specific errors
-- Verify link format is correct
+- Verify link is publicly accessible
+- Wait 30 seconds and retry
+- Check browser network tab for failed requests
+- Try different Terabox link format
 ```
 
-#### Controls Not Responding
+#### CORS and Streaming Issues
 ```
-Quick Fixes:
-1. Ensure JavaScript is enabled in browser
-2. Clear browser cache and reload page
-3. Try a different browser
-4. Check for browser compatibility
-5. Disable browser extensions that might interfere
+Symptoms: "CORS error" or "Failed to fetch"
+Solutions:
+1. Configure custom CORS proxy:
+   Settings → CORS Proxy URL → Enter proxy
+2. Use alternative streaming service
+3. Try direct download instead
+4. Check browser security settings
 ```
 
-#### Performance Issues
+#### Performance Problems
 ```
-Optimization Tips:
+Symptoms: Slow loading, choppy playback
+Solutions:
 1. Close unnecessary browser tabs
-2. Ensure stable internet connection
-3. Try lower video quality if available
-4. Clear browser cache and cookies
-5. Update browser to latest version
+2. Check internet connection speed
+3. Try lower video quality
+4. Clear browser cache
+5. Use incognito/private mode
 ```
 
-### Getting Help
+#### Mobile Compatibility
+```
+Symptoms: Poor mobile experience
+Solutions:
+1. Use Chrome/Safari on mobile
+2. Enable hardware acceleration
+3. Close background apps
+4. Try landscape orientation
+5. Use WiFi instead of cellular
+```
 
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/Chauhan-Mukesh/VibePlayer/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/Chauhan-Mukesh/VibePlayer/discussions)
-- 📧 **Support**: Create an issue with detailed information
-- 💬 **Community**: Join discussions in GitHub Discussions
+### Debugging Steps
+1. **Browser Console** - Check for JavaScript errors
+2. **Network Tab** - Monitor failed requests
+3. **Health Check** - Verify `/?health` endpoint
+4. **Server Logs** - Check PHP error logs
+5. **Cache Clear** - Clear browser cache and cookies
 
-## 📄 License
+### Getting Support
+- **GitHub Issues**: [Report bugs](https://github.com/Chauhan-Mukesh/VibePlayer/issues)
+- **Discussions**: [Feature requests](https://github.com/Chauhan-Mukesh/VibePlayer/discussions)
+- **Documentation**: [Wiki pages](https://github.com/Chauhan-Mukesh/VibePlayer/wiki)
 
-This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for details.
+## Contributing
+
+We welcome contributions from the community! Here's how to get started:
+
+### Quick Contribution Guide
+1. **Fork** the repository on GitHub
+2. **Create** a feature branch (`git checkout -b feature/awesome-feature`)
+3. **Make** your changes with proper testing
+4. **Commit** with descriptive messages (`git commit -m 'Add awesome feature'`)
+5. **Push** to your branch (`git push origin feature/awesome-feature`)
+6. **Submit** a Pull Request
+
+### Development Standards
+- **PHP**: Follow PSR-12 coding standard
+- **JavaScript**: Use ES6+ features, avoid global variables
+- **CSS**: Use utility classes, maintain mobile-first approach
+- **Testing**: Include tests for new functionality
+- **Documentation**: Update README for significant changes
+
+### Code Review Process
+- All PRs require review before merging
+- Automated tests must pass (if implemented)
+- Code style must meet project standards
+- New features need documentation
+- Breaking changes require version bump
+
+### Contributor Guidelines
+- **Sign Commits**: Use `git commit -s` for DCO compliance
+- **Test Thoroughly**: Test across different browsers/devices
+- **Include Changelog**: Add entry to CHANGELOG.md
+- **Respect Licenses**: Ensure compatibility with GPL-3.0
+- **Be Respectful**: Follow our Code of Conduct
+
+### Areas for Contribution
+- 🐛 **Bug Fixes** - Fix reported issues
+- ✨ **New Features** - Add requested functionality  
+- 📚 **Documentation** - Improve guides and examples
+- 🎨 **UI/UX** - Enhance user interface design
+- 🔧 **Performance** - Optimize speed and efficiency
+- 🌍 **Internationalization** - Add language support
+- 📱 **Mobile** - Improve mobile experience
+- 🔒 **Security** - Enhance security measures
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](LICENSE) file for full details.
 
 ### License Summary
-- ✅ **Commercial Use** - Use in commercial projects
-- ✅ **Modification** - Modify and adapt the code
+- ✅ **Commercial Use** - Use in commercial projects allowed
+- ✅ **Modification** - Modify and adapt the code freely
 - ✅ **Distribution** - Share and distribute copies
-- ✅ **Private Use** - Use for personal projects
-- ⚠️ **Copyleft** - Derivative works must use same license
-- ⚠️ **Disclose Source** - Source code must be made available
+- ✅ **Private Use** - Use for personal/private projects
+- ⚠️ **Copyleft** - Derivative works must use the same license
+- ⚠️ **Disclose Source** - Source code must be made available when distributing
 
-## 🙏 Acknowledgments
+### SPDX License Identifier
+```
+SPDX-License-Identifier: GPL-3.0-or-later
+```
 
-### Technologies
-- **PHP** - Server-side processing and API handling
+For detailed license information and contributor guidelines, see [LICENSE-README.md](LICENSE-README.md).
+
+## Acknowledgements
+
+### Open Source Technologies
+- **PHP** - Server-side scripting and API development
 - **HTML5 Video API** - Modern video playback capabilities
-- **Vanilla JavaScript** - Lightweight, fast frontend
-- **CSS Grid & Flexbox** - Modern layout systems
+- **Vanilla JavaScript** - Lightweight frontend framework
+- **CSS Grid & Flexbox** - Modern responsive layout systems
+- **Docker** - Containerization and deployment platform
 
-### Inspiration
-- Modern video players like YouTube and Vimeo
-- Open source media players
-- Community feedback and feature requests
-- Accessibility standards and best practices
+### Community & Inspiration
+- **YouTube** and **Vimeo** - Player interface inspiration
+- **Open source media players** - Feature ideas and implementation patterns
+- **Web accessibility standards** - WCAG guidelines and best practices
+- **Modern web design trends** - Glassmorphism and Gen-Alpha aesthetics
 
-### Contributors
+### Contributors & Community
 Special thanks to all contributors who have helped improve Vibe Player:
 
-- [@Chauhan-Mukesh](https://github.com/Chauhan-Mukesh) - Project Creator & Maintainer
-- Community contributors and testers
-- Bug reporters and feature requesters
+- **[@Chauhan-Mukesh](https://github.com/Chauhan-Mukesh)** - Project Creator & Lead Maintainer
+- **Community Contributors** - Bug reports, feature requests, and code contributions
+- **Beta Testers** - Early testing and feedback
+- **Documentation Contributors** - Improving guides and examples
 
-## 🎯 Roadmap
-
-### Version 2.1 (Next Release)
-- 🎬 **Playlist Support** - Queue and manage multiple videos
-- 🔄 **Auto-Resolution** - Automatic quality switching based on connection
-- 📺 **Chromecast Support** - Cast videos to TV devices
-- 🎵 **Audio-only Mode** - Extract and play audio tracks
-
-### Version 2.2 (Future)
-- 🌍 **Multi-language Support** - Internationalization
-- 🔐 **Optional User Accounts** - Cloud sync for settings and history
-- 📊 **Analytics Dashboard** - Detailed usage statistics
-- 🎨 **Custom Themes** - User-created color schemes
-
-### Version 3.0 (Long-term)
-- 📱 **Mobile Apps** - Native iOS and Android applications
-- 🤖 **AI Features** - Smart recommendations and auto-categorization
-- 🎮 **VR Support** - Virtual reality video playback
-- 🔗 **Social Features** - Sharing and collaborative playlists
+### Third-Party Resources
+- **FontAwesome** - Icon set (with emoji fallbacks)
+- **System Fonts** - Cross-platform typography
+- **Modern Browser APIs** - Cutting-edge web capabilities
 
 ---
 
 <div align="center">
 
-**Built with ❤️ for the open source community**
+**Made with ❤️ for the open source community**
 
-[⭐ Star this repo](https://github.com/Chauhan-Mukesh/VibePlayer) • [🐛 Report Bug](https://github.com/Chauhan-Mukesh/VibePlayer/issues) • [💡 Request Feature](https://github.com/Chauhan-Mukesh/VibePlayer/discussions) • [📖 Documentation](https://github.com/Chauhan-Mukesh/VibePlayer/wiki)
+[⭐ Star](https://github.com/Chauhan-Mukesh/VibePlayer) • [🐛 Issues](https://github.com/Chauhan-Mukesh/VibePlayer/issues) • [💡 Discussions](https://github.com/Chauhan-Mukesh/VibePlayer/discussions) • [📖 Wiki](https://github.com/Chauhan-Mukesh/VibePlayer/wiki)
 
-**Stay Connected**
-- 🐦 [Follow Updates](https://twitter.com/VibePlayer)
-- 💬 [Join Discord](https://discord.gg/vibeplayer)
-- 📧 [Newsletter](https://vibeplayer.dev/newsletter)
+**Built with modern web technologies for the next generation of streaming**
 
 </div>
