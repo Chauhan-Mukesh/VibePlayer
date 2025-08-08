@@ -32,8 +32,8 @@ RUN echo "=== Installing system dependencies ===" \
     pkg-config \
     && echo "=== Configuring PHP extensions ===" \
     && docker-php-ext-configure bcmath --enable-bcmath \
-    && echo "=== Installing PHP extensions with parallel compilation ===" \
-    && docker-php-ext-install -j$(nproc) \
+    && echo "=== Installing PHP extensions ===" \
+    && docker-php-ext-install \
     zip \
     exif \
     bcmath \
