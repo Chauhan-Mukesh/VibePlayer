@@ -16,6 +16,7 @@
 - [Features](#features)
 - [Demo](#demo)
 - [Quick Start](#quick-start)
+- [Cleanup & Uninstall](#cleanup--uninstall)
 - [Docker](#docker)
 - [Usage](#usage)
 - [Backend Details](#backend--architecture)
@@ -106,6 +107,105 @@ Vibe Player is a sophisticated single-page PHP application designed to seamlessl
 php -S 0.0.0.0:8000 index.php
 ```
 
+## Cleanup & Uninstall
+
+If you need to remove VibePlayer from your system, follow the appropriate instructions for your operating system and setup method.
+
+### Remove Project Directory
+
+**❌ Common Mistake**: Using `rmdir -Rf VibePlayer` (this command is invalid)
+
+**✅ Correct Commands**:
+
+#### Unix/Linux/macOS
+```bash
+# Remove entire project directory and all contents
+rm -rf VibePlayer
+
+# Alternative: Remove from current directory
+rm -rf ./VibePlayer
+```
+
+#### Windows Command Prompt
+```cmd
+# Remove entire project directory and all contents
+rmdir /s /q VibePlayer
+
+# Alternative short form
+rd /s /q VibePlayer
+```
+
+#### Windows PowerShell
+```powershell
+# Remove entire project directory and all contents
+Remove-Item -Recurse -Force VibePlayer
+
+# Alternative with confirmation prompt
+Remove-Item -Recurse VibePlayer
+```
+
+### Docker Cleanup
+
+If you used Docker, clean up containers and images:
+
+```bash
+# Stop and remove containers
+docker compose down
+
+# Remove containers and volumes
+docker compose down -v
+
+# Remove containers, volumes, and images
+docker compose down -v --rmi all
+
+# Remove all VibePlayer-related Docker resources
+docker system prune -f
+docker volume prune -f
+```
+
+### Complete System Cleanup
+
+For a thorough cleanup that removes all traces:
+
+```bash
+# 1. Stop any running services
+docker compose down -v --rmi all
+
+# 2. Remove project directory (choose your OS command from above)
+rm -rf VibePlayer  # Unix/Linux/macOS
+# OR
+# rmdir /s /q VibePlayer  # Windows
+
+# 3. Clean up Docker (if used)
+docker system prune -f
+docker volume prune -f
+
+# 4. Remove any cached data (optional)
+# Cache is typically stored in system temp directory
+# and will be cleaned automatically
+```
+
+### Troubleshooting Removal
+
+If you encounter "directory not empty" or "access denied" errors:
+
+1. **Close any open files/terminals** in the VibePlayer directory
+2. **Stop running processes**:
+   ```bash
+   # Stop any PHP development server
+   pkill -f "php -S"
+   
+   # Stop Docker containers
+   docker compose down
+   ```
+3. **Check for hidden files** (Unix/Linux/macOS):
+   ```bash
+   ls -la VibePlayer/
+   ```
+4. **Use administrator privileges** (Windows):
+   - Run Command Prompt as Administrator
+   - Use the `rmdir /s /q VibePlayer` command
+
 ## Docker
 
 ### Container Architecture
@@ -146,7 +246,15 @@ docker compose exec vibeplayer bash
 
 # Stop services
 docker compose down
+
+# Stop and remove volumes (cleanup data)
+docker compose down -v
+
+# Complete cleanup (removes containers, volumes, and images)
+docker compose down -v --rmi all
 ```
+
+**For complete system cleanup**, see the [Cleanup & Uninstall](#cleanup--uninstall) section.
 
 ## Usage
 
