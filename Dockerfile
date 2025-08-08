@@ -2,7 +2,7 @@
 # (c) 2025 Chauhan-Mukesh
 #
 # Production-ready Dockerfile for Vibe Player
-# Uses php:8.2-apache for optimal performance and Range header support
+# Optimized for fast builds and minimal image size
 
 FROM php:8.2-apache
 
@@ -13,27 +13,19 @@ LABEL org.opencontainers.image.source="https://github.com/Chauhan-Mukesh/VibePla
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # Install system dependencies and PHP extensions in single layer
-# Using parallel compilation and explicit configuration for faster, more reliable builds
+# Optimized for faster builds with parallel compilation and minimal dependencies
+# Key optimizations:
+# - Removed unnecessary build dependencies (build-essential, autoconf, pkg-config)
+# - Eliminated explicit bcmath configuration (not needed for PHP 8.2)
+# - Use -j$(nproc) for parallel compilation of extensions
+# - Reduced system package footprint for smaller image size
 RUN echo "=== Installing system dependencies ===" \
     && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    gnupg \
-    libcurl4-openssl-dev \
     libzip-dev \
-    zip \
-    unzip \
-    zlib1g-dev \
-    libpng-dev \
-    libonig-dev \
-    # Additional build dependencies for faster and more reliable compilation
-    build-essential \
-    autoconf \
-    pkg-config \
-    && echo "=== Configuring PHP extensions ===" \
-    && docker-php-ext-configure bcmath --enable-bcmath \
-    && echo "=== Installing PHP extensions ===" \
-    && docker-php-ext-install \
+    && echo "=== Installing PHP extensions with parallel compilation ===" \
+    && docker-php-ext-install -j$(nproc) \
     zip \
     exif \
     bcmath \
@@ -50,7 +42,7 @@ RUN groupadd -r vibe && useradd -r -g vibe vibe
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy application files
+# Copy application files with proper ownership
 COPY --chown=vibe:vibe index.php .
 COPY --chown=vibe:vibe .htaccess .
 COPY --chown=vibe:vibe README.md .
@@ -62,7 +54,7 @@ RUN mkdir -p /tmp/vibeplayercache \
     && chown -R vibe:vibe /tmp/vibeplayercache \
     && chmod 755 /tmp/vibeplayercache
 
-# Create PHP ini file with optimized configuration
+# Configure PHP settings for optimal performance
 RUN echo "memory_limit = 256M" > /usr/local/etc/php/conf.d/vibeplayer.ini \
     && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/vibeplayer.ini \
     && echo "post_max_size = 512M" >> /usr/local/etc/php/conf.d/vibeplayer.ini \
@@ -73,7 +65,7 @@ RUN echo "memory_limit = 256M" > /usr/local/etc/php/conf.d/vibeplayer.ini \
 # Set proper ownership for web content
 RUN chown -R vibe:vibe /var/www/html
 
-# Configure Apache DocumentRoot and security
+# Configure Apache security settings
 RUN echo "ServerTokens Prod" >> /etc/apache2/apache2.conf \
     && echo "ServerSignature Off" >> /etc/apache2/apache2.conf \
     && echo "TraceEnable Off" >> /etc/apache2/apache2.conf

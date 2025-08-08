@@ -175,7 +175,10 @@ The Docker setup uses **php:8.2-apache** for production deployment with:
 - Range header support for video seeking
 - Optimized PHP configuration for streaming
 - Health checks and monitoring
-- Multi-stage builds for minimal image size
+- Optimized build process with parallel compilation
+- Minimal dependencies for faster builds and smaller images
+
+**Build Optimization**: See [DOCKER-BUILD-OPTIMIZATION.md](DOCKER-BUILD-OPTIMIZATION.md) for details on performance improvements.
 
 ### Production Deployment
 ```bash
