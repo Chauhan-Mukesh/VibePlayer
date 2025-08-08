@@ -38,6 +38,7 @@ WORKDIR /var/www/html
 # Copy application files
 COPY --chown=vibe:vibe index.php .
 COPY --chown=vibe:vibe .htaccess .
+COPY --chown=vibe:vibe healthcheck.php .
 COPY --chown=vibe:vibe README.md .
 COPY --chown=vibe:vibe LICENSE .
 COPY --chown=vibe:vibe LICENSE-README.md .
@@ -56,7 +57,8 @@ RUN echo "memory_limit = 256M" > /usr/local/etc/php/conf.d/vibeplayer.ini \
     && echo "curl.cainfo = /etc/ssl/certs/ca-certificates.crt" >> /usr/local/etc/php/conf.d/vibeplayer.ini
 
 # Set proper ownership for web content
-RUN chown -R vibe:vibe /var/www/html
+RUN chown -R vibe:vibe /var/www/html \
+    && chmod +x /var/www/html/healthcheck.php
 
 # Configure Apache DocumentRoot and security
 RUN echo "ServerTokens Prod" >> /etc/apache2/apache2.conf \
@@ -66,9 +68,11 @@ RUN echo "ServerTokens Prod" >> /etc/apache2/apache2.conf \
 # Expose port 80 for production
 EXPOSE 80
 
-# Health check for container monitoring
+# Health check for container monitoring - uses local checks to avoid network restrictions
+# This approach prevents issues with DNS monitoring proxies and restrictive build environments
+# by performing file system and PHP functionality checks without requiring HTTP calls
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -fsS http://localhost/?health || exit 1
+    CMD php /var/www/html/healthcheck.php || exit 1
 
 # Use non-root user for runtime security
 USER vibe
