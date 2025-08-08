@@ -831,7 +831,7 @@ if (isset($_GET['download'])) {
             overflow: hidden;
         }
         
-        /* Enhanced input container with proper single border styling */
+        /* Enhanced input container with proper spacing and margins */
         .input-container-wrapper {
             background: var(--glassmorphism-bg);
             backdrop-filter: blur(20px) saturate(150%);
@@ -842,15 +842,16 @@ if (isset($_GET['download'])) {
             overflow: hidden;
             box-shadow: 0 10px 30px rgba(30,35,45,0.08);
             max-width: 900px;
-            margin: 0 auto;
+            margin: 24px auto;
+            width: 100%;
         }
         
         .input-container {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 16px;
-            height: 56px;
+            gap: 12px;
+            padding: 12px 20px;
+            height: 60px;
         }
         
         .input-icon {
@@ -876,7 +877,7 @@ if (isset($_GET['download'])) {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 12px 20px;
+            padding: 14px 24px;
             background: var(--primary-gradient);
             color: white;
             border: none;
@@ -884,8 +885,9 @@ if (isset($_GET['download'])) {
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 16px;
-            min-width: 48px;
-            height: 40px;
+            min-width: 52px;
+            height: 44px;
+            margin-left: 8px;
         }
         
         .load-button:hover {
@@ -960,11 +962,16 @@ if (isset($_GET['download'])) {
             }
         }
         
-        /* Responsive improvements */
+        /* Responsive improvements with proper spacing */
         @media (max-width: 768px) {
+            #app-wrapper {
+                padding: 0 16px;
+                space-y: 16px;
+            }
+            
             .input-container-wrapper {
-                width: calc(100% - 48px);
-                margin: 0 auto;
+                width: 100%;
+                margin: 0;
             }
             
             .input-icon {
@@ -977,6 +984,37 @@ if (isset($_GET['download'])) {
                 min-width: 40px;
                 height: 36px;
             }
+            
+            .hero-section {
+                padding: 16px;
+                margin: 16px 0;
+            }
+            
+            .info-box {
+                padding: 12px;
+                margin: 16px 0;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 8px;
+            }
+            
+            #app-wrapper {
+                padding: 0 8px;
+            }
+            
+            .input-container {
+                padding: 8px 12px;
+                gap: 6px;
+                height: 48px;
+            }
+            
+            .hero-section {
+                padding: 12px;
+                margin: 12px 0;
+            }
         }
         
         @media (max-width: 360px) {
@@ -985,8 +1023,14 @@ if (isset($_GET['download'])) {
             }
             
             .input-container {
-                padding: 10px 12px;
-                gap: 6px;
+                padding: 8px 10px;
+                gap: 4px;
+                height: 44px;
+            }
+            
+            .vibe-header {
+                font-size: clamp(18px, 5vw, 32px) !important;
+                padding: 12px 16px;
             }
         }
         
@@ -1006,12 +1050,14 @@ if (isset($_GET['download'])) {
             transform: translateY(-2px);
         }
         
-        /* Enhanced hero section with animated background */
+        /* Enhanced hero section with proper margins */
         .hero-section { 
             background: var(--hero-bg);
             position: relative;
             overflow: hidden;
             animation: gradientShift 8s ease-in-out infinite;
+            margin: 20px auto;
+            padding: 24px;
         }
         
         @keyframes gradientShift {
@@ -1168,7 +1214,7 @@ if (isset($_GET['download'])) {
             text-shadow: 0 0 30px rgba(255, 60, 172, 0.5);
         }
         
-        /* Enhanced info box with better visual hierarchy */
+        /* Enhanced info box with better spacing */
         .info-box { 
             background: var(--glassmorphism-bg);
             backdrop-filter: blur(20px) saturate(150%);
@@ -1178,6 +1224,8 @@ if (isset($_GET['download'])) {
             position: relative;
             overflow: hidden;
             transition: all 0.3s ease;
+            margin: 20px auto;
+            padding: 20px;
         }
         
         .info-box::before {
@@ -2104,30 +2152,30 @@ if (isset($_GET['download'])) {
 
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-4 sm:p-6">
+<body class="min-h-screen p-4 sm:p-6 flex flex-col justify-center">
 
-    <div id="app-wrapper" class="w-full max-w-4xl lg:max-w-5xl 2xl:max-w-7xl mx-auto space-y-6">
+    <div id="app-wrapper" class="w-full max-w-4xl lg:max-w-5xl 2xl:max-w-7xl mx-auto space-y-4 sm:space-y-6">
         <!-- Header with enhanced gradient title and theme toggle -->
-        <div class="text-center relative">
+        <div class="text-center relative mb-6">
             <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent vibe-header" 
-                style="background-image: var(--primary-gradient); font-family: Inter, Poppins, sans-serif; font-weight: 700; font-size: clamp(20px, 4vw, 48px); letter-spacing: 0.5px;">
+                style="background-image: var(--primary-gradient); font-family: Inter, Poppins, sans-serif; font-weight: 700; font-size: clamp(20px, 4vw, 48px); letter-spacing: 0.5px; margin-bottom: 8px;">
                 Vibe Player
             </h1>
-            <p class="mt-2" style="color: var(--text-muted-color);">The Ultimate Hub for Seamless Streaming.</p>
+            <p class="mt-2 mb-4" style="color: var(--text-muted-color);">The Ultimate Hub for Seamless Streaming.</p>
             <button id="theme-toggle" class="absolute top-0 right-0 p-3 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[var(--bg-color)] focus:ring-[var(--accent-color)] glassmorphism theme-toggle-btn" aria-label="Toggle theme">
                 <i class="fas fa-sun text-xl theme-icon"></i>
             </button>
         </div>
         
         <!-- Enhanced Features Slider Section with glassmorphism -->
-        <div class="p-6 rounded-2xl shadow-lg hero-section glassmorphism">
+        <div class="p-6 rounded-2xl shadow-lg hero-section glassmorphism mb-6">
             <div class="slider-container">
                 <div class="slider-track"></div>
             </div>
         </div>
         
         <!-- Enhanced URL Input Section with glassmorphism -->
-        <div class="relative input-container-wrapper rounded-full glassmorphism">
+        <div class="relative input-container-wrapper rounded-full glassmorphism mb-6">
             <div class="input-container">
                 <span id="url-status-icon" class="input-icon">
                     <i class="fas fa-link" style="color: var(--text-muted-color);"></i>
@@ -2143,13 +2191,13 @@ if (isset($_GET['download'])) {
         </div>
         
         <!-- Enhanced Info Box with glassmorphism -->
-        <div class="p-4 rounded-lg border info-box glassmorphism">
+        <div class="p-4 rounded-lg border info-box glassmorphism mb-6">
             <p><i class="fas fa-info-circle mr-2"></i><strong>Terabox links are auto-resolved!</strong> For other restricted sites, use the <strong>Proxy</strong> setting.</p>
             <p class="mt-2 text-sm"><i class="fas fa-keyboard mr-2"></i><strong>Keyboard Shortcuts:</strong> Space (play/pause), ←/→ (seek), ↑/↓ (volume), F (fullscreen), M (mute), T (theater mode)</p>
         </div>
 
         <!-- Video Player Container -->
-        <div id="playerContainer" class="hidden">
+        <div id="playerContainer" class="hidden mt-6">
             <div id="videoPlayerWrapper" class="relative w-full aspect-video rounded-lg overflow-hidden bg-black video-container">
                 <!-- Main video element -->
                 <video id="mainVideo" class="w-full h-full" crossOrigin="anonymous"></video>

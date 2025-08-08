@@ -1,0 +1,171 @@
+# NOTICE - Copyright and License Headers
+
+This file provides templates for copyright and license headers that contributors should use when adding new files to the Vibe Player project.
+
+## Standard Header Template
+
+For **PHP files** (recommended for index.php and any new PHP files):
+
+```php
+<?php
+/**
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * (c) 2025 Chauhan-Mukesh
+ *
+ * This file is part of Vibe Player.
+ *
+ * Vibe Player is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Vibe Player is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Vibe Player. If not, see <https://www.gnu.org/licenses/>.
+ */
+```
+
+For **JavaScript files**:
+
+```javascript
+/**
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * (c) 2025 Chauhan-Mukesh
+ *
+ * This file is part of Vibe Player.
+ * See LICENSE file for full license text.
+ */
+```
+
+For **CSS files**:
+
+```css
+/**
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * (c) 2025 Chauhan-Mukesh
+ *
+ * This file is part of Vibe Player.
+ * See LICENSE file for full license text.
+ */
+```
+
+For **HTML files**:
+
+```html
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+(c) 2025 Chauhan-Mukesh
+
+This file is part of Vibe Player.
+See LICENSE file for full license text.
+-->
+```
+
+For **Markdown/Documentation files**:
+
+```markdown
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+(c) 2025 Chauhan-Mukesh
+-->
+```
+
+For **Docker/Config files**:
+
+```dockerfile
+# SPDX-License-Identifier: GPL-3.0-or-later
+# (c) 2025 Chauhan-Mukesh
+```
+
+## Contributor Instructions
+
+### For New Contributors
+
+When contributing new files, please:
+
+1. **Use the appropriate header** from the templates above
+2. **Replace the copyright year** with the current year if different
+3. **Add your name** to the copyright line if you are the primary author:
+   ```
+   (c) 2025 YourName, Chauhan-Mukesh
+   ```
+4. **Keep the SPDX identifier** exactly as shown: `GPL-3.0-or-later`
+
+### For Existing Files
+
+When modifying existing files:
+
+1. **Do not remove existing headers** unless specifically instructed
+2. **You may add your copyright** if you make substantial contributions:
+   ```php
+   * (c) 2025 Chauhan-Mukesh
+   * (c) 2025 YourName (modifications)
+   ```
+3. **Preserve the original SPDX identifier**
+
+### For Documentation
+
+- README files, API docs, and user guides typically don't need full headers
+- For substantial documentation contributions, a simple comment header is sufficient:
+  ```markdown
+  <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+  ```
+
+## Examples of Good Practice
+
+### Example 1: New PHP utility file
+```php
+<?php
+/**
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * (c) 2025 JohnDoe, Chauhan-Mukesh
+ *
+ * Video processing utilities for Vibe Player.
+ * This file contains helper functions for video metadata extraction.
+ */
+
+function extractVideoMetadata($videoUrl) {
+    // Implementation here...
+}
+```
+
+### Example 2: New JavaScript module
+```javascript
+/**
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * (c) 2025 JaneSmith
+ *
+ * Player controls module for Vibe Player.
+ * Handles play/pause, seeking, and volume controls.
+ */
+
+class PlayerControls {
+    // Implementation here...
+}
+```
+
+## Why These Headers Matter
+
+1. **Legal Clarity**: Makes licensing terms clear for every file
+2. **Attribution**: Ensures contributors get proper credit
+3. **Compliance**: Meets GPL-3.0 requirements for source distribution
+4. **Automation**: Enables automated license scanning and compliance tools
+5. **Professional**: Follows industry best practices for open source projects
+
+## Questions?
+
+If you're unsure about:
+- Which header to use for a specific file type
+- Whether to add your copyright to an existing file
+- How to handle files with mixed contributions
+
+Please ask in the GitHub issue or discussion before submitting your PR.
+
+---
+
+**This notice is part of the Vibe Player project.**  
+**For full license terms, see the [LICENSE](LICENSE) file.**
