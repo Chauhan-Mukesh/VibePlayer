@@ -5,7 +5,7 @@
 # Minimal PHP extensions for maximum storage savings and fastest build times
 # Only includes cURL extension (required for TeraBox resolution and streaming)
 
-FROM php:8.2-apache
+FROM php:8.2-apache@sha256:3291431664f257c08ea4f1b0884060ada697ae4a45ab13f497861f4c0862aed0
 
 LABEL maintainer="Chauhan-Mukesh <70336897+Chauhan-Mukesh@users.noreply.github.com>"
 LABEL description="Vibe Player - The Ultimate Open Source Streaming Hub"
