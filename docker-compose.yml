@@ -41,12 +41,6 @@ services:
       # Cache persistence (optional)
       - vibeplayer-cache:/tmp/vibeplayercache
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost/?health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     logging:
       driver: "json-file"
       options:
