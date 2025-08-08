@@ -40,7 +40,7 @@ Vibe Player is a sophisticated single-page PHP application designed to seamlessl
 ## Features
 
 ### Core Functionality
-- **🔗 Public Terabox Link Resolver** - Automatically extracts direct video URLs from Terabox sharing links
+- **🔗 Multi-Method Terabox Link Resolver** - Direct API + Apify fallback for maximum reliability
 - **🎥 Server-side Range-enabled Streaming** - Efficient chunked video delivery with seek support
 - **⬇️ Fallback Direct Download** - Alternative download method when streaming fails
 - **⚡ Caching of Resolved Links** - 15-minute TTL cache for improved performance
@@ -81,6 +81,7 @@ Vibe Player is a sophisticated single-page PHP application designed to seamlessl
 ### Requirements
 - **Docker & Docker Compose** (recommended)
 - **OR** PHP 8.2+ CLI for development
+- **Optional**: Apify API token for enhanced TeraBox resolution
 
 ### Minimal Setup
 
@@ -90,12 +91,26 @@ Vibe Player is a sophisticated single-page PHP application designed to seamlessl
    cd VibePlayer
    ```
 
-2. **Docker Compose (Recommended)**
+2. **Configure Apify Integration (Optional but Recommended)**
+   ```bash
+   # Copy environment template
+   cp .env.example .env
+   
+   # Edit .env and add your Apify API token
+   nano .env
+   ```
+   
+   **To get an Apify API token:**
+   - Sign up at [Apify.com](https://apify.com/) (free trial available)
+   - Go to **Integrations** → **API tokens** in Apify Console
+   - Copy your token and add it to `.env`: `APIFY_API_TOKEN=your_token_here`
+
+3. **Docker Compose (Recommended)**
    ```bash
    docker compose up --build -d
    ```
 
-3. **Open Application**
+4. **Open Application**
    ```
    http://localhost:8000
    ```
@@ -105,6 +120,52 @@ Vibe Player is a sophisticated single-page PHP application designed to seamlessl
 # For development only
 php -S 0.0.0.0:8000 index.php
 ```
+
+### Apify Integration Setup
+
+The VibePlayer includes an **Apify TeraBox Video/File Downloader** integration as a reliable fallback when direct resolution methods fail. This significantly improves success rates for TeraBox link resolution.
+
+#### Getting Started with Apify
+
+1. **Create Apify Account**
+   - Sign up at [Apify.com](https://apify.com/) (free trial with 1,000 actor runs/month)
+   - No credit card required for the free tier
+
+2. **Get API Token**
+   - Go to [Apify Console → Integrations](https://console.apify.com/account/integrations)
+   - Copy your API token (starts with `apify_api_`)
+
+3. **Configure VibePlayer**
+   ```bash
+   # Method 1: Environment Variable (Recommended)
+   export APIFY_API_TOKEN=your_token_here
+   
+   # Method 2: Docker Compose
+   echo "APIFY_API_TOKEN=your_token_here" >> .env
+   docker compose up --build
+   
+   # Method 3: Direct Docker Run
+   docker run -e APIFY_API_TOKEN=your_token_here vibeplayer:latest
+   ```
+
+4. **Verify Configuration**
+   ```bash
+   curl http://localhost:8000/?health | jq '.apify_integration'
+   ```
+
+#### How It Works
+
+1. **Primary Method**: Direct TeraBox API calls (fast, free)
+2. **Fallback Method**: Apify actor when direct method fails (reliable, paid)
+3. **Automatic Switching**: No user intervention required
+4. **Caching**: Successful results cached to minimize API usage
+5. **Error Handling**: Graceful degradation when Apify is not configured
+
+#### Cost Considerations
+
+- **Free Tier**: 1,000 actor runs/month (sufficient for personal use)
+- **Pay-as-you-go**: $0.25 per 1,000 runs for higher usage
+- **Optimization**: Results are cached for 15 minutes to reduce API calls
 
 ## Docker
 
