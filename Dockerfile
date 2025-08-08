@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     gnupg \
+    libcurl4-openssl-dev \
     libzip-dev \
     zip \
     unzip \
@@ -24,11 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpng-dev \
     libonig-dev \
     && docker-php-ext-install \
-    curl \
     zip \
-    mbstring \
-    json \
-    fileinfo \
     exif \
     bcmath \
     && rm -rf /var/lib/apt/lists/*
@@ -54,10 +51,7 @@ RUN mkdir -p /tmp/vibeplayercache \
     && chown -R vibe:vibe /tmp/vibeplayercache \
     && chmod 755 /tmp/vibeplayercache
 
-# Copy optimized PHP configuration
-COPY docker/php.ini /usr/local/etc/php/conf.d/vibeplayer.ini
-
-# Create PHP ini file if not exists (fallback)
+# Create PHP ini file with optimized configuration
 RUN echo "memory_limit = 256M" > /usr/local/etc/php/conf.d/vibeplayer.ini \
     && echo "max_execution_time = 300" >> /usr/local/etc/php/conf.d/vibeplayer.ini \
     && echo "post_max_size = 512M" >> /usr/local/etc/php/conf.d/vibeplayer.ini \
