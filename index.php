@@ -1858,8 +1858,8 @@ if (isset($_GET['download'])) {
         
         /* Vertical range slider */
         input[type="range"][orient="vertical"] { 
-            writing-mode: bt-lr; 
-            -webkit-appearance: slider-vertical; 
+            writing-mode: vertical-lr; 
+            direction: rtl; 
             width: 8px; 
             height: 100px; 
         }
